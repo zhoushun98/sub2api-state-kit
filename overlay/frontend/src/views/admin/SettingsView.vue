@@ -4522,6 +4522,45 @@
                   <p v-if="form.openai_codex_ticket_harvest_proxy_configured" class="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="codex-ticket-global-pool-configured">{{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}</p>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}</p>
                 </div>
+                <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="codex-ticket-defaults">
+                  <div class="flex items-center justify-between gap-4">
+                    <div class="min-w-0">
+                      <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultEnabled") }}
+                      </h3>
+                      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultEnabledDesc") }}
+                      </p>
+                      <p v-if="form.openai_codex_ticket_default_enabled && form.openai_codex_ticket_default_enabled_since" class="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="codex-ticket-default-since">
+                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultSince", { time: formatCodexTicketDefaultSince(form.openai_codex_ticket_default_enabled_since) }) }}
+                      </p>
+                    </div>
+                    <Toggle
+                      id="codex-ticket-default-enabled"
+                      v-model="form.openai_codex_ticket_default_enabled"
+                    />
+                  </div>
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label for="codex-ticket-default-plan" class="input-label">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultPlan") }}</label>
+                      <select id="codex-ticket-default-plan" v-model="form.openai_codex_ticket_default_plan" class="input w-full text-sm">
+                        <option value="pro">{{ t("admin.accounts.stateTicket.planPro") }}</option>
+                        <option value="team">{{ t("admin.accounts.stateTicket.planTeam") }}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p class="input-label">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModels") }}</p>
+                      <div class="flex flex-wrap gap-4 pt-2">
+                        <label v-for="m in CODEX_TICKET_MODELS" :key="m" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                          <input v-model="form.openai_codex_ticket_default_models" type="checkbox" :value="m" :data-testid="`codex-ticket-default-model-${m}`" />
+                          <span class="font-mono">{{ m }}</span>
+                        </label>
+                      </div>
+                      <p v-if="form.openai_codex_ticket_default_models.length === 0" class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModelsRequired") }}</p>
+                    </div>
+                  </div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModelsHint") }}</p>
+                </div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t("admin.settings.gatewayForwarding.codexTicketAccountHint") }}
                   <a href="/admin/accounts" class="font-medium text-primary-600 underline dark:text-primary-400">{{ t("admin.settings.gatewayForwarding.codexTicketAccountsLink") }}</a>
@@ -8894,6 +8933,7 @@ import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vu
 import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
+import { CODEX_TICKET_MODELS } from "@/api/admin/codexTickets";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
@@ -9611,6 +9651,11 @@ type SettingsForm = Omit<
 };
 
 const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
+function formatCodexTicketDefaultSince(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(locale.value, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+}
 
 const form = reactive<SettingsForm>({
   registration_enabled: true,
@@ -9868,6 +9913,10 @@ const form = reactive<SettingsForm>({
   openai_codex_ticket_enabled: false,
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
+  openai_codex_ticket_default_enabled: false,
+  openai_codex_ticket_default_enabled_since: "",
+  openai_codex_ticket_default_plan: "pro",
+  openai_codex_ticket_default_models: ["gpt-6-astra"],
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -11477,6 +11526,9 @@ async function saveSettings() {
         form.openai_codex_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
       openai_codex_ticket_harvest_proxy_url: form.openai_codex_ticket_harvest_proxy_url.trim() || undefined,
+      openai_codex_ticket_default_enabled: form.openai_codex_ticket_default_enabled,
+      openai_codex_ticket_default_plan: form.openai_codex_ticket_default_plan,
+      openai_codex_ticket_default_models: [...form.openai_codex_ticket_default_models],
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:

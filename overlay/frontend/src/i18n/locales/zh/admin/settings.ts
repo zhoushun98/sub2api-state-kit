@@ -546,6 +546,14 @@ export default {
           "供已开启 STATE 的账号统一采集票据，日常请求仍走各账号的固定代理。粘贴完整 HTTP / SOCKS5h 代理 URL（含用户名和密码）。用户名里的 {'{'}sid{'}'} 或 1024proxy 的 SID 每次尝试会自动更换。更换池不清除有效票据；留空保存保留现有配置。",
         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
         codexTicketHarvestProxyConfigured: '已配置（密码已隐藏）。要更换请整段粘贴新的代理 URL。',
+        codexTicketDefaultEnabled: '新账号默认开启 STATE',
+        codexTicketDefaultEnabledDesc:
+          '开启后，之后新建（含导入、复制）且已绑定固定代理的 OpenAI OAuth 账号会自动按下方默认套餐和目标模型开启票据；现有账号不受影响，手动关闭过的账号也不会再自动开启。',
+        codexTicketDefaultSince: '生效于 {time}，此后创建的账号自动开启。',
+        codexTicketDefaultPlan: '默认套餐',
+        codexTicketDefaultModels: '默认目标模型',
+        codexTicketDefaultModelsHint: '每个模型独立采票；已勾选但缺票的模型会暂停调度到该账号。未绑定固定代理的新账号会等到绑定后再自动开启。',
+        codexTicketDefaultModelsRequired: '至少选择一个模型，留空将按 gpt-6-astra 处理。',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:
           '仅对已开启「仅允许 Codex 官方客户端」的 OpenAI OAuth 账号生效（全局）。在 User-Agent/Originator 之外，用版本区间、引擎指纹门与黑/白名单巩固判定。',

@@ -1,5 +1,36 @@
 # Sub2API STATE Kit
 
+> 本仓库是 [wangyunjeff/sub2api-state-kit](https://github.com/wangyunjeff/sub2api-state-kit) 的 fork，在原版 0.1.0 之上追加了下面两项改造；构建好的镜像发布在 Docker Hub `zhoushun98/sub2api`。原作者的说明从「相比上游增加了什么」一节起原样保留。
+
+## 本 fork 的改动（2026-09-19）
+
+### 0.1.1：账号级多模型票据
+
+- 每个账号可同时勾选 `gpt-6-astra` 与 `gpt-5.6-sol`，各自独立采集、经固定代理复验、注入；已勾选但缺票的模型只暂停该模型到本账号的调度，其他模型不受影响。
+- 采集任务与票据状态按「账号 × 模型」拆分；`GET / PUT /api/v1/admin/accounts/:id/codex-ticket` 新增 `models` 与 `model_statuses`，仍兼容单个 `model` 字段。
+- 仅增删模型时保留未变模型的票据与 revision；「重新获取」会把所有已选模型重采一遍。
+
+### 0.1.2：新账号默认开启 STATE
+
+- 「系统设置 → 网关服务 → Codex 设置」新增「新账号默认开启 STATE」、默认套餐、默认目标模型。
+- 只认领在开启该默认之后创建、已绑定固定代理、且从未手动配置过票据的 OpenAI OAuth 账号（含导入、复制）；存量账号与手动关闭过的账号不受影响；未绑代理的新账号绑上后才自动开启；关闭再开启会重新计时。
+- 设置键：`openai_codex_ticket_default_enabled` / `_enabled_since` / `_plan` / `_models`。
+
+### 镜像与构建
+
+- `zhoushun98/sub2api:state-kit-0.1.2-defaults`（linux/amd64，含以上全部改动）
+- `zhoushun98/sub2api:state-kit-0.1.1-multimodel`
+- 构建：`python3 scripts/prepare.py ../sub2api-state-source && cd ../sub2api-state-source && docker build --build-arg VERSION=0.2.6-state-kit.0.1.2-defaults -t sub2api:state-kit-0.1.2-defaults .`
+
+### 验证
+
+- 后端：`go test ./internal/service ./internal/handler/admin -run 'Codex|codex|Setting' -count=1` 与 `go test -tags unit ./internal/server -run TestAPIContracts`
+- 前端：`vitest run CodexAccountTicketSettings SettingsView localeKeyCompleteness`、`vue-tsc --noEmit`、`pnpm run check:i18n`
+- 两次改动的补丁见 `docs/patches/`，对应 `overlay/` 与 `UPSTREAM.json` 已重新生成（56 个覆盖文件）。
+
+---
+
+
 首先感谢 **[gylive/ccodex-sleep-state](https://github.com/gylive/ccodex-sleep-state)** 的思路分享，也感谢群里各位大佬在讨论、测试和排查中的帮助！这个扩展是在 [Sub2API](https://github.com/Wei-Shaw/sub2api) 的基础上折腾出来的，离不开原项目和大家的经验。
 
 为 Sub2API 增加 **账号级 STATE 管理、Pro / Team 选择和异常动态守护**。可以逐个账号编辑、开启或关闭：只对需要处理的账号启用，正常账号继续按原流程使用。

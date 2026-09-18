@@ -64,7 +64,7 @@ func TestCodexAccountTicketHarvestAndFixedReplay(t *testing.T) {
 		return codexTicketResponse(), nil
 	}}
 	s, r := ticketJobService(t, u)
-	job := s.startCodexAccountTicketJob(context.Background(), 41, true)
+	job := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 	waitCodexTicketJob(t, job)
 	require.Equal(t, int64(3), calls.Load())
 	require.NotEqual(t, urls[0], urls[1])
@@ -93,7 +93,7 @@ func TestCodexAccountTicketFixedProxyMismatchRejectsAndBoundsAttempts(t *testing
 		return codexTicketResponse(), nil
 	}}
 	s, r := ticketJobService(t, u)
-	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
+	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 	require.Equal(t, int64(16), calls.Load())
 	a, _ := r.GetByID(context.Background(), 41)
 	require.Nil(t, s.lookupOpenAICodexTicket(a, openAICodexTicketDefaultModel))
@@ -117,9 +117,9 @@ func TestCodexAccountTicketDisableDuringJobPreventsLatePublication(t *testing.T)
 				}
 				return codexTicketResponse(), nil
 			}})
-			job := s.startCodexAccountTicketJob(context.Background(), 41, true)
+			job := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 			<-started
-			require.Same(t, job, s.startCodexAccountTicketJob(context.Background(), 41, true))
+			require.Same(t, job, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 			status, err := s.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: false})
 			require.NoError(t, err)
 			require.Equal(t, "disabled", status.State)
@@ -203,7 +203,7 @@ func TestCodexTicketGlobalDisablePreventsLatePublication(t *testing.T) {
 	settings := &codexTicketAtomicSettingRepo{}
 	settings.enabled.Store(true)
 	s.settingService = NewSettingService(settings, s.cfg)
-	job := s.startCodexAccountTicketJob(context.Background(), 41, true)
+	job := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 	<-started
 	settings.enabled.Store(false)
 	s.settingService.InvalidateOpenAICodexTicketEnabledCache()

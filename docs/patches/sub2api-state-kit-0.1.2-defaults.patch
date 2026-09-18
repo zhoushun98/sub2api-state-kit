@@ -1,0 +1,780 @@
+From 0b5d66d486461a5b280ebaaa052f92416af03da5 Mon Sep 17 00:00:00 2001
+From: otok-ops <ops@otok>
+Date: Sat, 19 Sep 2026 01:22:03 +0800
+Subject: [PATCH] =?UTF-8?q?state-kit=EF=BC=9A=E6=96=B0=E5=A2=9E=E5=85=A8?=
+ =?UTF-8?q?=E5=B1=80=E3=80=8C=E6=96=B0=E8=B4=A6=E5=8F=B7=E9=BB=98=E8=AE=A4?=
+ =?UTF-8?q?=E5=BC=80=E5=90=AF=20STATE=E3=80=8D=EF=BC=88=E9=BB=98=E8=AE=A4?=
+ =?UTF-8?q?=E5=A5=97=E9=A4=90=20/=20=E9=BB=98=E8=AE=A4=E6=A8=A1=E5=9E=8B?=
+ =?UTF-8?q?=EF=BC=8C=E5=8F=AA=E8=AE=A4=E9=A2=86=E5=BC=80=E5=90=AF=E5=90=8E?=
+ =?UTF-8?q?=E5=88=9B=E5=BB=BA=E4=B8=94=E5=B7=B2=E7=BB=91=E5=9B=BA=E5=AE=9A?=
+ =?UTF-8?q?=E4=BB=A3=E7=90=86=E7=9A=84=E8=B4=A6=E5=8F=B7=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../internal/handler/admin/setting_handler.go |  4 +
+ .../handler/admin/setting_handler_audit.go    |  9 +++
+ .../handler/admin/setting_handler_update.go   | 69 +++++++++++++----
+ backend/internal/handler/dto/settings.go      | 40 +++++-----
+ backend/internal/server/api_contract_test.go  |  8 ++
+ backend/internal/service/domain_constants.go  |  9 +++
+ .../internal/service/openai_codex_ticket.go   |  4 +
+ .../service/openai_codex_ticket_account.go    | 76 +++++++++++++++++++
+ .../openai_codex_ticket_multimodel_test.go    | 44 +++++++++++
+ .../service/setting_gateway_runtime.go        | 68 +++++++++++++++++
+ backend/internal/service/setting_parse.go     |  8 ++
+ backend/internal/service/setting_service.go   |  1 +
+ backend/internal/service/setting_update.go    | 13 ++++
+ backend/internal/service/settings_view.go     |  4 +
+ frontend/src/api/admin/settings.ts            |  7 ++
+ .../src/i18n/locales/en/admin/settings.ts     |  8 ++
+ .../src/i18n/locales/zh/admin/settings.ts     |  8 ++
+ frontend/src/views/admin/SettingsView.vue     | 52 +++++++++++++
+ .../admin/__tests__/SettingsView.spec.ts      | 21 +++++
+ 19 files changed, 419 insertions(+), 34 deletions(-)
+
+diff --git a/backend/internal/handler/admin/setting_handler.go b/backend/internal/handler/admin/setting_handler.go
+index e093fb8..935200f 100644
+--- a/backend/internal/handler/admin/setting_handler.go
++++ b/backend/internal/handler/admin/setting_handler.go
+@@ -306,6 +306,10 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
+ 		OpenAICodexTicketEnabled:                               settings.OpenAICodexTicketEnabled,
+ 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(settings.OpenAICodexTicketHarvestProxyURL),
+ 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL) != "",
++		OpenAICodexTicketDefaultEnabled:                        settings.OpenAICodexTicketDefaultEnabled,
++		OpenAICodexTicketDefaultEnabledSince:                   settings.OpenAICodexTicketDefaultEnabledSince,
++		OpenAICodexTicketDefaultPlan:                           settings.OpenAICodexTicketDefaultPlan,
++		OpenAICodexTicketDefaultModels:                         service.SplitCodexTicketDefaultModels(settings.OpenAICodexTicketDefaultModels),
+ 		MinCodexVersion:                                        settings.MinCodexVersion,
+ 		MaxCodexVersion:                                        settings.MaxCodexVersion,
+ 		CodexCLIOnlyBlacklist:                                  settings.CodexCLIOnlyBlacklist,
+diff --git a/backend/internal/handler/admin/setting_handler_audit.go b/backend/internal/handler/admin/setting_handler_audit.go
+index 34a8ef5..1d89457 100644
+--- a/backend/internal/handler/admin/setting_handler_audit.go
++++ b/backend/internal/handler/admin/setting_handler_audit.go
+@@ -488,6 +488,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
+ 	if before.OpenAICodexTicketHarvestProxyURL != after.OpenAICodexTicketHarvestProxyURL {
+ 		changed = append(changed, "openai_codex_ticket_harvest_proxy_url")
+ 	}
++	if before.OpenAICodexTicketDefaultEnabled != after.OpenAICodexTicketDefaultEnabled {
++		changed = append(changed, "openai_codex_ticket_default_enabled")
++	}
++	if before.OpenAICodexTicketDefaultPlan != after.OpenAICodexTicketDefaultPlan {
++		changed = append(changed, "openai_codex_ticket_default_plan")
++	}
++	if before.OpenAICodexTicketDefaultModels != after.OpenAICodexTicketDefaultModels {
++		changed = append(changed, "openai_codex_ticket_default_models")
++	}
+ 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
+ 		changed = append(changed, "openai_codex_user_agent")
+ 	}
+diff --git a/backend/internal/handler/admin/setting_handler_update.go b/backend/internal/handler/admin/setting_handler_update.go
+index 05b48a7..73894df 100644
+--- a/backend/internal/handler/admin/setting_handler_update.go
++++ b/backend/internal/handler/admin/setting_handler_update.go
+@@ -9,6 +9,7 @@ import (
+ 	"reflect"
+ 	"strconv"
+ 	"strings"
++	"time"
+ 
+ 	"github.com/Wei-Shaw/sub2api/internal/config"
+ 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+@@ -243,22 +244,25 @@ type UpdateSettingsRequest struct {
+ 	BackendModeEnabled bool `json:"backend_mode_enabled"`
+ 
+ 	// Gateway forwarding behavior
+-	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
+-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
+-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
+-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
+-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
+-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
+-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
+-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
+-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
+-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
+-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
+-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
+-	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
+-	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
+-	OpenAICodexTicketEnabled               *bool   `json:"openai_codex_ticket_enabled"`
+-	OpenAICodexTicketHarvestProxyURL       string  `json:"openai_codex_ticket_harvest_proxy_url"`
++	OpenAITTFTMode                         *string  `json:"openai_ttft_mode"`
++	EnableFingerprintUnification           *bool    `json:"enable_fingerprint_unification"`
++	EnableMetadataPassthrough              *bool    `json:"enable_metadata_passthrough"`
++	EnableCCHSigning                       *bool    `json:"enable_cch_signing"`
++	EnableClaudeOAuthSystemPromptInjection *bool    `json:"enable_claude_oauth_system_prompt_injection"`
++	ClaudeOAuthSystemPrompt                *string  `json:"claude_oauth_system_prompt"`
++	ClaudeOAuthSystemPromptBlocks          *string  `json:"claude_oauth_system_prompt_blocks"`
++	EnableAnthropicCacheTTL1hInjection     *bool    `json:"enable_anthropic_cache_ttl_1h_injection"`
++	RewriteMessageCacheControl             *bool    `json:"rewrite_message_cache_control"`
++	EnableClientDatelineNormalization      *bool    `json:"enable_client_dateline_normalization"`
++	AntigravityUserAgentVersion            *string  `json:"antigravity_user_agent_version"`
++	OpenAICodexUserAgent                   *string  `json:"openai_codex_user_agent"`
++	OpenAICodexClientVersion               *string  `json:"openai_codex_client_version"`
++	OpenAICodexVersionAutoSyncEnabled      *bool    `json:"openai_codex_version_auto_sync_enabled"`
++	OpenAICodexTicketEnabled               *bool    `json:"openai_codex_ticket_enabled"`
++	OpenAICodexTicketHarvestProxyURL       string   `json:"openai_codex_ticket_harvest_proxy_url"`
++	OpenAICodexTicketDefaultEnabled        *bool    `json:"openai_codex_ticket_default_enabled"`
++	OpenAICodexTicketDefaultPlan           string   `json:"openai_codex_ticket_default_plan"`
++	OpenAICodexTicketDefaultModels         []string `json:"openai_codex_ticket_default_models"`
+ 
+ 	// codex_cli_only 加固（global-only）
+ 	MinCodexVersion                      string `json:"min_codex_version"`
+@@ -1783,6 +1787,35 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
+ 			}
+ 			return next
+ 		}(),
++		OpenAICodexTicketDefaultEnabled: func() bool {
++			if req.OpenAICodexTicketDefaultEnabled != nil {
++				return *req.OpenAICodexTicketDefaultEnabled
++			}
++			return previousSettings.OpenAICodexTicketDefaultEnabled
++		}(),
++		// 生效时间由服务端写入：从关到开（或首次开启）时记为现在，之后创建的账号才会自动开启；关闭后再开启会重新计时。
++		OpenAICodexTicketDefaultEnabledSince: func() string {
++			enabled := previousSettings.OpenAICodexTicketDefaultEnabled
++			if req.OpenAICodexTicketDefaultEnabled != nil {
++				enabled = *req.OpenAICodexTicketDefaultEnabled
++			}
++			if enabled && (!previousSettings.OpenAICodexTicketDefaultEnabled || strings.TrimSpace(previousSettings.OpenAICodexTicketDefaultEnabledSince) == "") {
++				return time.Now().UTC().Format(time.RFC3339)
++			}
++			return previousSettings.OpenAICodexTicketDefaultEnabledSince
++		}(),
++		OpenAICodexTicketDefaultPlan: func() string {
++			if next := strings.ToLower(strings.TrimSpace(req.OpenAICodexTicketDefaultPlan)); next != "" {
++				return next
++			}
++			return previousSettings.OpenAICodexTicketDefaultPlan
++		}(),
++		OpenAICodexTicketDefaultModels: func() string {
++			if req.OpenAICodexTicketDefaultModels != nil {
++				return strings.Join(req.OpenAICodexTicketDefaultModels, ",")
++			}
++			return previousSettings.OpenAICodexTicketDefaultModels
++		}(),
+ 		MinCodexVersion:       strings.TrimSpace(req.MinCodexVersion),
+ 		MaxCodexVersion:       strings.TrimSpace(req.MaxCodexVersion),
+ 		CodexCLIOnlyBlacklist: strings.TrimSpace(req.CodexCLIOnlyBlacklist),
+@@ -2328,6 +2361,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
+ 		OpenAICodexTicketEnabled:                               updatedSettings.OpenAICodexTicketEnabled,
+ 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
+ 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(updatedSettings.OpenAICodexTicketHarvestProxyURL) != "",
++		OpenAICodexTicketDefaultEnabled:                        updatedSettings.OpenAICodexTicketDefaultEnabled,
++		OpenAICodexTicketDefaultEnabledSince:                   updatedSettings.OpenAICodexTicketDefaultEnabledSince,
++		OpenAICodexTicketDefaultPlan:                           updatedSettings.OpenAICodexTicketDefaultPlan,
++		OpenAICodexTicketDefaultModels:                         service.SplitCodexTicketDefaultModels(updatedSettings.OpenAICodexTicketDefaultModels),
+ 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,
+ 		MaxCodexVersion:                                        updatedSettings.MaxCodexVersion,
+ 		CodexCLIOnlyBlacklist:                                  updatedSettings.CodexCLIOnlyBlacklist,
+diff --git a/backend/internal/handler/dto/settings.go b/backend/internal/handler/dto/settings.go
+index 9071474..f539f29 100644
+--- a/backend/internal/handler/dto/settings.go
++++ b/backend/internal/handler/dto/settings.go
+@@ -202,24 +202,28 @@ type SystemSettings struct {
+ 	BackendModeEnabled bool `json:"backend_mode_enabled"`
+ 
+ 	// Gateway forwarding behavior
+-	OpenAITTFTMode                          string `json:"openai_ttft_mode"`
+-	EnableFingerprintUnification            bool   `json:"enable_fingerprint_unification"`
+-	EnableMetadataPassthrough               bool   `json:"enable_metadata_passthrough"`
+-	EnableCCHSigning                        bool   `json:"enable_cch_signing"`
+-	EnableClaudeOAuthSystemPromptInjection  bool   `json:"enable_claude_oauth_system_prompt_injection"`
+-	ClaudeOAuthSystemPrompt                 string `json:"claude_oauth_system_prompt"`
+-	ClaudeOAuthSystemPromptBlocks           string `json:"claude_oauth_system_prompt_blocks"`
+-	EnableAnthropicCacheTTL1hInjection      bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
+-	RewriteMessageCacheControl              bool   `json:"rewrite_message_cache_control"`
+-	EnableClientDatelineNormalization       bool   `json:"enable_client_dateline_normalization"`
+-	AntigravityUserAgentVersion             string `json:"antigravity_user_agent_version"`
+-	OpenAICodexUserAgent                    string `json:"openai_codex_user_agent"`
+-	OpenAICodexClientVersion                string `json:"openai_codex_client_version"`
+-	OpenAICodexClientVersionSynced          string `json:"openai_codex_client_version_synced"`
+-	OpenAICodexVersionAutoSyncEnabled       bool   `json:"openai_codex_version_auto_sync_enabled"`
+-	OpenAICodexTicketEnabled                bool   `json:"openai_codex_ticket_enabled"`
+-	OpenAICodexTicketHarvestProxyURL        string `json:"openai_codex_ticket_harvest_proxy_url"`
+-	OpenAICodexTicketHarvestProxyConfigured bool   `json:"openai_codex_ticket_harvest_proxy_configured"`
++	OpenAITTFTMode                          string   `json:"openai_ttft_mode"`
++	EnableFingerprintUnification            bool     `json:"enable_fingerprint_unification"`
++	EnableMetadataPassthrough               bool     `json:"enable_metadata_passthrough"`
++	EnableCCHSigning                        bool     `json:"enable_cch_signing"`
++	EnableClaudeOAuthSystemPromptInjection  bool     `json:"enable_claude_oauth_system_prompt_injection"`
++	ClaudeOAuthSystemPrompt                 string   `json:"claude_oauth_system_prompt"`
++	ClaudeOAuthSystemPromptBlocks           string   `json:"claude_oauth_system_prompt_blocks"`
++	EnableAnthropicCacheTTL1hInjection      bool     `json:"enable_anthropic_cache_ttl_1h_injection"`
++	RewriteMessageCacheControl              bool     `json:"rewrite_message_cache_control"`
++	EnableClientDatelineNormalization       bool     `json:"enable_client_dateline_normalization"`
++	AntigravityUserAgentVersion             string   `json:"antigravity_user_agent_version"`
++	OpenAICodexUserAgent                    string   `json:"openai_codex_user_agent"`
++	OpenAICodexClientVersion                string   `json:"openai_codex_client_version"`
++	OpenAICodexClientVersionSynced          string   `json:"openai_codex_client_version_synced"`
++	OpenAICodexVersionAutoSyncEnabled       bool     `json:"openai_codex_version_auto_sync_enabled"`
++	OpenAICodexTicketEnabled                bool     `json:"openai_codex_ticket_enabled"`
++	OpenAICodexTicketHarvestProxyURL        string   `json:"openai_codex_ticket_harvest_proxy_url"`
++	OpenAICodexTicketHarvestProxyConfigured bool     `json:"openai_codex_ticket_harvest_proxy_configured"`
++	OpenAICodexTicketDefaultEnabled         bool     `json:"openai_codex_ticket_default_enabled"`
++	OpenAICodexTicketDefaultEnabledSince    string   `json:"openai_codex_ticket_default_enabled_since"`
++	OpenAICodexTicketDefaultPlan            string   `json:"openai_codex_ticket_default_plan"`
++	OpenAICodexTicketDefaultModels          []string `json:"openai_codex_ticket_default_models"`
+ 
+ 	// codex_cli_only 加固
+ 	MinCodexVersion                      string `json:"min_codex_version"`
+diff --git a/backend/internal/server/api_contract_test.go b/backend/internal/server/api_contract_test.go
+index 76ef0b6..43e7073 100644
+--- a/backend/internal/server/api_contract_test.go
++++ b/backend/internal/server/api_contract_test.go
+@@ -900,6 +900,10 @@ func TestAPIContracts(t *testing.T) {
+ 					"openai_codex_ticket_enabled": false,
+ 					"openai_codex_ticket_harvest_proxy_url": "",
+ 					"openai_codex_ticket_harvest_proxy_configured": false,
++					"openai_codex_ticket_default_enabled": false,
++					"openai_codex_ticket_default_enabled_since": "",
++					"openai_codex_ticket_default_plan": "pro",
++					"openai_codex_ticket_default_models": ["gpt-6-astra"],
+ 					"min_codex_version": "",
+ 					"max_codex_version": "",
+ 					"codex_cli_only_blacklist": "",
+@@ -1232,6 +1236,10 @@ func TestAPIContracts(t *testing.T) {
+ 					"openai_codex_ticket_enabled": false,
+ 					"openai_codex_ticket_harvest_proxy_url": "",
+ 					"openai_codex_ticket_harvest_proxy_configured": false,
++					"openai_codex_ticket_default_enabled": false,
++					"openai_codex_ticket_default_enabled_since": "",
++					"openai_codex_ticket_default_plan": "pro",
++					"openai_codex_ticket_default_models": ["gpt-6-astra"],
+ 					"min_codex_version": "",
+ 					"max_codex_version": "",
+ 					"codex_cli_only_blacklist": "",
+diff --git a/backend/internal/service/domain_constants.go b/backend/internal/service/domain_constants.go
+index f8f8e94..459ffdd 100644
+--- a/backend/internal/service/domain_constants.go
++++ b/backend/internal/service/domain_constants.go
+@@ -713,6 +713,15 @@ const (
+ 	SettingKeyOpenAICodexTicketEnabled = "openai_codex_ticket_enabled"
+ 	// SettingKeyOpenAICodexTicketHarvestProxyURL Codex 292 打票出口（socks5h/http），后台可改、热更新。
+ 	SettingKeyOpenAICodexTicketHarvestProxyURL = "openai_codex_ticket_harvest_proxy_url"
++	// SettingKeyOpenAICodexTicketDefaultEnabled 新建 OpenAI OAuth 账号是否默认开启 STATE 票据。
++	// 只影响「开启该默认之后创建、已绑定固定代理、且从未手动配置过票据」的账号；存量账号不受影响。
++	SettingKeyOpenAICodexTicketDefaultEnabled = "openai_codex_ticket_default_enabled"
++	// SettingKeyOpenAICodexTicketDefaultEnabledSince 默认开启的生效时间（RFC3339，服务端写入）；早于此时间创建的账号不自动开启。
++	SettingKeyOpenAICodexTicketDefaultEnabledSince = "openai_codex_ticket_default_enabled_since"
++	// SettingKeyOpenAICodexTicketDefaultPlan 新账号默认套餐：pro（292）/ team（332）。
++	SettingKeyOpenAICodexTicketDefaultPlan = "openai_codex_ticket_default_plan"
++	// SettingKeyOpenAICodexTicketDefaultModels 新账号默认目标模型，逗号分隔。
++	SettingKeyOpenAICodexTicketDefaultModels = "openai_codex_ticket_default_models"
+ 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
+ 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
+ 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
+diff --git a/backend/internal/service/openai_codex_ticket.go b/backend/internal/service/openai_codex_ticket.go
+index addda11..250fbdf 100644
+--- a/backend/internal/service/openai_codex_ticket.go
++++ b/backend/internal/service/openai_codex_ticket.go
+@@ -513,8 +513,12 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
+ 	if err != nil {
+ 		return
+ 	}
++	defaults := s.openAICodexTicketDefaultsContext(ctx)
+ 	for i := range accounts {
+ 		account := &accounts[i]
++		if defaults.Enabled {
++			s.adoptCodexAccountTicketDefaults(ctx, account, defaults)
++		}
+ 		ac := codexAccountTicketConfigOf(account)
+ 		if !codexAccountTicketEligible(account) || !ac.Enabled {
+ 			continue
+diff --git a/backend/internal/service/openai_codex_ticket_account.go b/backend/internal/service/openai_codex_ticket_account.go
+index cbcaac0..a9ab9a4 100644
+--- a/backend/internal/service/openai_codex_ticket_account.go
++++ b/backend/internal/service/openai_codex_ticket_account.go
+@@ -17,8 +17,10 @@ import (
+ 	"time"
+ 
+ 	apperrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
++	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+ 	"github.com/google/uuid"
+ 	"github.com/tidwall/gjson"
++	"go.uber.org/zap"
+ )
+ 
+ const codexAccountTicketConfigKey = "codex_ticket_config"
+@@ -836,3 +838,77 @@ func validateCodexTicketCompletedModel(body io.Reader, model string) error {
+ 	}
+ 	return errors.New("response did not complete")
+ }
++
++// normalizeCodexTicketDefaultPlan 规范化全局默认套餐：空 → pro；非法 → ""。
++func normalizeCodexTicketDefaultPlan(raw string) string {
++	switch strings.ToLower(strings.TrimSpace(raw)) {
++	case "", codexTicketPlanPro:
++		return codexTicketPlanPro
++	case codexTicketPlanTeam:
++		return codexTicketPlanTeam
++	default:
++		return ""
++	}
++}
++
++func splitCodexTicketModelList(raw string) []string {
++	return strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t' })
++}
++
++// SplitCodexTicketDefaultModels 宽松解析逗号分隔的默认模型：忽略非法项，空则回退默认模型。
++func SplitCodexTicketDefaultModels(raw string) []string {
++	return normalizeCodexTicketModels(splitCodexTicketModelList(raw), "")
++}
++
++// parseCodexTicketDefaultModelsStrict 严格解析：出现非法模型名即报错；空则回退默认模型。
++func parseCodexTicketDefaultModelsStrict(raw string) ([]string, error) {
++	for _, m := range splitCodexTicketModelList(raw) {
++		if m = normalizeOpenAICodexTicketModel(m); m != "" && !codexTicketModelAllowed(m) {
++			return nil, fmt.Errorf("default ticket models must be gpt-6-astra and/or gpt-5.6-sol, got %q", m)
++		}
++	}
++	return SplitCodexTicketDefaultModels(raw), nil
++}
++
++func (s *OpenAIGatewayService) openAICodexTicketDefaultsContext(ctx context.Context) OpenAICodexTicketDefaults {
++	if s == nil || s.settingService == nil {
++		return OpenAICodexTicketDefaults{}
++	}
++	return s.settingService.GetOpenAICodexTicketDefaults(ctx)
++}
++
++// adoptCodexAccountTicketDefaults 把全局默认项写成账号级配置并返回是否认领成功。
++// 只认领：开启默认之后创建、当前 active、已绑定固定代理、且从未有过账号级票据配置的
++// 非影子 OpenAI OAuth 账号。手动关闭过的账号带有 enabled=false 的配置，不会被再次认领。
++func (s *OpenAIGatewayService) adoptCodexAccountTicketDefaults(ctx context.Context, account *Account, defaults OpenAICodexTicketDefaults) bool {
++	if s == nil || s.accountRepo == nil || account == nil || !defaults.Enabled || defaults.Since.IsZero() {
++		return false
++	}
++	if account.Extra != nil && account.Extra[codexAccountTicketConfigKey] != nil {
++		return false
++	}
++	if !isOpenAICodexTicketAccount(account) || account.Status != StatusActive || account.ProxyID == nil || account.Proxy == nil {
++		return false
++	}
++	if account.CreatedAt.IsZero() || account.CreatedAt.Before(defaults.Since) {
++		return false
++	}
++	plan := normalizeCodexTicketDefaultPlan(defaults.Plan)
++	if plan == "" {
++		return false
++	}
++	models := normalizeCodexTicketModels(defaults.Models, "")
++	cfg := codexAccountTicketConfig{TicketPlan: plan, Enabled: true, Model: models[0], Models: models, Revision: uuid.NewString()}
++	writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
++	defer cancel()
++	if err := s.accountRepo.UpdateExtra(writeCtx, account.ID, map[string]any{codexAccountTicketConfigKey: cfg}); err != nil {
++		logger.L().Warn("openai_codex_ticket adopt defaults failed", zap.Int64("account_id", account.ID), zap.Error(err))
++		return false
++	}
++	if account.Extra == nil {
++		account.Extra = map[string]any{}
++	}
++	account.Extra[codexAccountTicketConfigKey] = cfg
++	logger.L().Info("openai_codex_ticket account adopted defaults", zap.Int64("account_id", account.ID), zap.String("plan", plan), zap.Strings("models", models))
++	return true
++}
+diff --git a/backend/internal/service/openai_codex_ticket_multimodel_test.go b/backend/internal/service/openai_codex_ticket_multimodel_test.go
+index a426071..7ca047f 100644
+--- a/backend/internal/service/openai_codex_ticket_multimodel_test.go
++++ b/backend/internal/service/openai_codex_ticket_multimodel_test.go
+@@ -114,3 +114,47 @@ func TestCodexAccountTicketMultiModel(t *testing.T) {
+ 	require.False(t, status.TicketUsable)
+ 	require.NotEqual(t, "ready", status.State)
+ }
++
++// 全局「新账号默认开启」只认领：开启后创建、已绑固定代理、且从未配置过票据的账号；存量账号与手动关闭过的账号不动。
++func TestCodexAccountTicketAdoptDefaults(t *testing.T) {
++	s, repo := ticketJobService(t, &codexTicketFuncUpstream{proxy: func(req *http.Request, _ string) (*http.Response, error) {
++		return codexTicketResponse(), nil
++	}})
++	ctx := context.Background()
++	since := time.Now().Add(-time.Hour)
++	defaults := OpenAICodexTicketDefaults{Enabled: true, Since: since, Plan: "team", Models: []string{openAICodexTicketDefaultSolModel, openAICodexTicketDefaultModel}}
++	proxyID := int64(7)
++	fresh := &Account{ID: 61, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, ProxyID: &proxyID, Proxy: &Proxy{ID: 7, Protocol: "http", Host: "fixed.example.com", Port: 8080}, CreatedAt: since.Add(time.Minute), Credentials: map[string]any{"access_token": "tok"}}
++	legacy := &Account{ID: 62, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, ProxyID: &proxyID, Proxy: fresh.Proxy, CreatedAt: since.Add(-time.Minute), Credentials: map[string]any{"access_token": "tok"}}
++	noProxy := &Account{ID: 63, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, CreatedAt: since.Add(time.Minute), Credentials: map[string]any{"access_token": "tok"}}
++	optedOut := &Account{ID: 64, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, ProxyID: &proxyID, Proxy: fresh.Proxy, CreatedAt: since.Add(time.Minute), Credentials: map[string]any{"access_token": "tok"}, Extra: map[string]any{codexAccountTicketConfigKey: codexAccountTicketConfig{Enabled: false, Revision: "manual"}}}
++	repo.mu.Lock()
++	repo.accounts = append(repo.accounts, *fresh, *legacy, *noProxy, *optedOut)
++	repo.mu.Unlock()
++
++	require.True(t, s.adoptCodexAccountTicketDefaults(ctx, fresh, defaults))
++	require.False(t, s.adoptCodexAccountTicketDefaults(ctx, fresh, defaults), "already configured accounts are not adopted twice")
++	require.False(t, s.adoptCodexAccountTicketDefaults(ctx, legacy, defaults), "accounts created before the default was enabled stay untouched")
++	require.False(t, s.adoptCodexAccountTicketDefaults(ctx, noProxy, defaults), "accounts without a fixed proxy wait until one is bound")
++	require.False(t, s.adoptCodexAccountTicketDefaults(ctx, optedOut, defaults), "manually disabled accounts are respected")
++	require.False(t, s.adoptCodexAccountTicketDefaults(ctx, &Account{ID: 65, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, ProxyID: &proxyID, Proxy: fresh.Proxy, CreatedAt: since.Add(time.Minute)}, OpenAICodexTicketDefaults{Enabled: true, Plan: "team"}), "no effective-since means no adoption")
++
++	live, err := repo.GetByID(ctx, 61)
++	require.NoError(t, err)
++	ac := codexAccountTicketConfigOf(live)
++	require.True(t, ac.Enabled)
++	require.Equal(t, codexTicketPlanTeam, ac.TicketPlan)
++	require.Equal(t, []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}, ac.models())
++	require.NotEmpty(t, ac.Revision)
++	for _, id := range []int64{62, 63, 64} {
++		other, err := repo.GetByID(ctx, id)
++		require.NoError(t, err)
++		require.False(t, codexAccountTicketConfigOf(other).Enabled, "account %d", id)
++	}
++	require.Equal(t, []string{openAICodexTicketDefaultModel}, SplitCodexTicketDefaultModels(""))
++	require.Equal(t, []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}, SplitCodexTicketDefaultModels("gpt-5.6-sol, gpt-6-astra, bogus"))
++	_, err = parseCodexTicketDefaultModelsStrict("gpt-6-astra,gpt-4o")
++	require.Error(t, err)
++	require.Equal(t, "", normalizeCodexTicketDefaultPlan("enterprise"))
++	require.Equal(t, codexTicketPlanPro, normalizeCodexTicketDefaultPlan(""))
++}
+diff --git a/backend/internal/service/setting_gateway_runtime.go b/backend/internal/service/setting_gateway_runtime.go
+index 4f1643b..b2e886b 100644
+--- a/backend/internal/service/setting_gateway_runtime.go
++++ b/backend/internal/service/setting_gateway_runtime.go
+@@ -1196,3 +1196,71 @@ func (s *SettingService) SetOpenAIQuotaAutoPauseSettings(settings OpsOpenAIAccou
+ 		expiresAt: time.Now().Add(openAIQuotaAutoPauseSettingsCacheTTL).UnixNano(),
+ 	})
+ }
++
++// OpenAICodexTicketDefaults 是「新账号默认开启 STATE」的全局默认；Since 为零值或 Enabled 为 false 时不自动开启任何账号。
++type OpenAICodexTicketDefaults struct {
++	Enabled bool
++	Since   time.Time
++	Plan    string
++	Models  []string
++}
++
++type cachedOpenAICodexTicketDefaults struct {
++	value     OpenAICodexTicketDefaults
++	expiresAt int64
++}
++
++const openAICodexTicketDefaultsCacheTTL = 5 * time.Second
++
++// GetOpenAICodexTicketDefaults 返回后台配置的新账号 STATE 默认项（5 秒缓存）。
++func (s *SettingService) GetOpenAICodexTicketDefaults(ctx context.Context) OpenAICodexTicketDefaults {
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	if s == nil || s.settingRepo == nil || ctx.Err() != nil {
++		return OpenAICodexTicketDefaults{}
++	}
++	if cached, ok := s.openAICodexTicketDefaultsCache.Load().(*cachedOpenAICodexTicketDefaults); ok && cached != nil {
++		if time.Now().UnixNano() < cached.expiresAt {
++			return cached.value
++		}
++	}
++	dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
++	defer cancel()
++	get := func(key string) string {
++		value, err := s.settingRepo.GetValue(dbCtx, key)
++		if err != nil {
++			return ""
++		}
++		return strings.TrimSpace(value)
++	}
++	out := OpenAICodexTicketDefaults{
++		Enabled: get(SettingKeyOpenAICodexTicketDefaultEnabled) == "true",
++		Plan:    normalizeCodexTicketDefaultPlan(get(SettingKeyOpenAICodexTicketDefaultPlan)),
++		Models:  SplitCodexTicketDefaultModels(get(SettingKeyOpenAICodexTicketDefaultModels)),
++	}
++	if raw := get(SettingKeyOpenAICodexTicketDefaultEnabledSince); raw != "" {
++		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
++			out.Since = parsed
++		}
++	}
++	// 没有生效时间就不自动开启，避免误伤存量账号。
++	if out.Since.IsZero() || out.Plan == "" {
++		out.Enabled = false
++	}
++	if ctx.Err() != nil {
++		return out
++	}
++	s.openAICodexTicketDefaultsCache.Store(&cachedOpenAICodexTicketDefaults{
++		value:     out,
++		expiresAt: time.Now().Add(openAICodexTicketDefaultsCacheTTL).UnixNano(),
++	})
++	return out
++}
++
++func (s *SettingService) InvalidateOpenAICodexTicketDefaultsCache() {
++	if s == nil {
++		return
++	}
++	s.openAICodexTicketDefaultsCache.Store(&cachedOpenAICodexTicketDefaults{expiresAt: 0})
++}
+diff --git a/backend/internal/service/setting_parse.go b/backend/internal/service/setting_parse.go
+index dc93d05..70f431d 100644
+--- a/backend/internal/service/setting_parse.go
++++ b/backend/internal/service/setting_parse.go
+@@ -247,6 +247,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
+ 		SettingKeyOpenAICodexClientVersionSynced:                     "",
+ 		SettingKeyOpenAICodexVersionAutoSyncEnabled:                  "true",
+ 		SettingKeyOpenAICodexTicketHarvestProxyURL:                   "",
++		SettingKeyOpenAICodexTicketDefaultEnabled:                    "false",
++		SettingKeyOpenAICodexTicketDefaultEnabledSince:               "",
++		SettingKeyOpenAICodexTicketDefaultPlan:                       "pro",
++		SettingKeyOpenAICodexTicketDefaultModels:                     "gpt-6-astra",
+ 		SettingPaymentVisibleMethodAlipaySource:                      "",
+ 		SettingPaymentVisibleMethodWxpaySource:                       "",
+ 		SettingPaymentVisibleMethodAlipayEnabled:                     "false",
+@@ -898,6 +902,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
+ 		result.OpenAICodexTicketEnabled = s.cfg.Gateway.OpenAICodexTicket.Enabled
+ 	}
+ 	result.OpenAICodexTicketHarvestProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketHarvestProxyURL])
++	result.OpenAICodexTicketDefaultEnabled = settings[SettingKeyOpenAICodexTicketDefaultEnabled] == "true"
++	result.OpenAICodexTicketDefaultEnabledSince = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketDefaultEnabledSince])
++	result.OpenAICodexTicketDefaultPlan = normalizeCodexTicketDefaultPlan(settings[SettingKeyOpenAICodexTicketDefaultPlan])
++	result.OpenAICodexTicketDefaultModels = strings.Join(SplitCodexTicketDefaultModels(settings[SettingKeyOpenAICodexTicketDefaultModels]), ",")
+ 	// codex_cli_only 加固
+ 	result.MinCodexVersion = settings[SettingKeyMinCodexVersion]
+ 	result.MaxCodexVersion = settings[SettingKeyMaxCodexVersion]
+diff --git a/backend/internal/service/setting_service.go b/backend/internal/service/setting_service.go
+index 16d64d4..dc2e09a 100644
+--- a/backend/internal/service/setting_service.go
++++ b/backend/internal/service/setting_service.go
+@@ -134,6 +134,7 @@ type SettingService struct {
+ 	openAICodexTicketEnabledSF         singleflight.Group
+ 	openAICodexTicketHarvestProxyCache atomic.Value // *cachedOpenAICodexTicketHarvestProxy
+ 	openAICodexTicketHarvestProxySF    singleflight.Group
++	openAICodexTicketDefaultsCache     atomic.Value // *cachedOpenAICodexTicketDefaults
+ 	codexRestrictionPolicyCache        atomic.Value // *cachedCodexRestrictionPolicy
+ 	codexRestrictionPolicySF           singleflight.Group
+ 
+diff --git a/backend/internal/service/setting_update.go b/backend/internal/service/setting_update.go
+index 20ada35..87e8470 100644
+--- a/backend/internal/service/setting_update.go
++++ b/backend/internal/service/setting_update.go
+@@ -490,6 +490,18 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
+ 		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
+ 	}
+ 	updates[SettingKeyOpenAICodexTicketHarvestProxyURL] = strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL)
++	updates[SettingKeyOpenAICodexTicketDefaultEnabled] = strconv.FormatBool(settings.OpenAICodexTicketDefaultEnabled)
++	updates[SettingKeyOpenAICodexTicketDefaultEnabledSince] = strings.TrimSpace(settings.OpenAICodexTicketDefaultEnabledSince)
++	codexDefaultPlan := normalizeCodexTicketDefaultPlan(settings.OpenAICodexTicketDefaultPlan)
++	if codexDefaultPlan == "" {
++		return nil, infraerrors.BadRequest("INVALID_CODEX_TICKET_DEFAULT_PLAN", "default ticket plan must be pro or team")
++	}
++	updates[SettingKeyOpenAICodexTicketDefaultPlan] = codexDefaultPlan
++	codexDefaultModels, codexModelsErr := parseCodexTicketDefaultModelsStrict(settings.OpenAICodexTicketDefaultModels)
++	if codexModelsErr != nil {
++		return nil, infraerrors.BadRequest("INVALID_CODEX_TICKET_DEFAULT_MODELS", codexModelsErr.Error())
++	}
++	updates[SettingKeyOpenAICodexTicketDefaultModels] = strings.Join(codexDefaultModels, ",")
+ 	// SettingKeyOpenAICodexClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
+ 	// 否则面板保存会把同步结果清空。
+ 	// codex_cli_only 加固
+@@ -746,6 +758,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
+ 	s.InvalidateOpenAICodexClientVersionCache()
+ 	s.InvalidateOpenAICodexTicketEnabledCache()
+ 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
++	s.InvalidateOpenAICodexTicketDefaultsCache()
+ 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
+ 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
+ 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
+diff --git a/backend/internal/service/settings_view.go b/backend/internal/service/settings_view.go
+index 6e2bcd4..f998da1 100644
+--- a/backend/internal/service/settings_view.go
++++ b/backend/internal/service/settings_view.go
+@@ -252,6 +252,10 @@ type SystemSettings struct {
+ 	OpenAICodexVersionAutoSyncEnabled      bool   // 是否启用 Codex 客户端版本号自动同步（默认 true）
+ 	OpenAICodexTicketEnabled               bool   // Codex 292 打票总开关；关闭则不打票不注入
+ 	OpenAICodexTicketHarvestProxyURL       string // Codex 292 打票代理 URL；空则回退 yaml/env
++	OpenAICodexTicketDefaultEnabled        bool   // 新建 OAuth 账号默认开启 STATE（只影响开启后创建的账号）
++	OpenAICodexTicketDefaultEnabledSince   string // 默认开启生效时间 RFC3339；早于此创建的账号不自动开启
++	OpenAICodexTicketDefaultPlan           string // 新账号默认套餐 pro / team
++	OpenAICodexTicketDefaultModels         string // 新账号默认目标模型，逗号分隔
+ 	MinCodexVersion                        string // codex_cli_only 最低 Codex 引擎版本；空=不检查
+ 	MaxCodexVersion                        string // codex_cli_only 最高 Codex 引擎版本；空=不检查
+ 	CodexCLIOnlyBlacklist                  string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
+diff --git a/frontend/src/api/admin/settings.ts b/frontend/src/api/admin/settings.ts
+index a93114a..aa23f43 100644
+--- a/frontend/src/api/admin/settings.ts
++++ b/frontend/src/api/admin/settings.ts
+@@ -642,6 +642,10 @@ export interface SystemSettings {
+   openai_codex_ticket_enabled: boolean;
+   openai_codex_ticket_harvest_proxy_url: string;
+   openai_codex_ticket_harvest_proxy_configured: boolean;
++  openai_codex_ticket_default_enabled: boolean;
++  openai_codex_ticket_default_enabled_since: string;
++  openai_codex_ticket_default_plan: string;
++  openai_codex_ticket_default_models: string[];
+   // codex_cli_only 加固
+   min_codex_version: string;
+   max_codex_version: string;
+@@ -963,6 +967,9 @@ export interface UpdateSettingsRequest {
+   openai_codex_version_auto_sync_enabled?: boolean;
+   openai_codex_ticket_enabled?: boolean;
+   openai_codex_ticket_harvest_proxy_url?: string;
++  openai_codex_ticket_default_enabled?: boolean;
++  openai_codex_ticket_default_plan?: string;
++  openai_codex_ticket_default_models?: string[];
+   // codex_cli_only 加固
+   min_codex_version?: string;
+   max_codex_version?: string;
+diff --git a/frontend/src/i18n/locales/en/admin/settings.ts b/frontend/src/i18n/locales/en/admin/settings.ts
+index a05b7eb..64a1970 100644
+--- a/frontend/src/i18n/locales/en/admin/settings.ts
++++ b/frontend/src/i18n/locales/en/admin/settings.ts
+@@ -553,6 +553,14 @@ export default {
+           "Shared by accounts with STATE enabled; normal requests keep each account's fixed proxy. Paste a full HTTP / SOCKS5h proxy URL including credentials. A username {'{'}sid{'}'} placeholder or 1024proxy SID is replaced on every attempt. Changing the pool preserves valid tickets. Leave blank to keep the saved pool.",
+         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
+         codexTicketHarvestProxyConfigured: "Configured (password hidden). Paste a full new proxy URL to replace it.",
++        codexTicketDefaultEnabled: "Enable STATE for new accounts by default",
++        codexTicketDefaultEnabledDesc:
++          "When on, OpenAI OAuth accounts created afterwards (including imports and copies) that have a fixed proxy bound are enabled automatically with the default plan and models below. Existing accounts are untouched, and accounts you turned off manually stay off.",
++        codexTicketDefaultSince: "Effective since {time}; accounts created after that are enabled automatically.",
++        codexTicketDefaultPlan: "Default plan",
++        codexTicketDefaultModels: "Default target models",
++        codexTicketDefaultModelsHint: "Each model harvests its own ticket; a selected model without a ticket is paused on that account. New accounts without a fixed proxy are enabled once one is bound.",
++        codexTicketDefaultModelsRequired: "Select at least one model; an empty selection falls back to gpt-6-astra.",
+         codexClientRestrictionTitle: "Codex client restriction",
+         codexHardeningDesc:
+           "Only affects OpenAI OAuth accounts with 'Codex official clients only' enabled (global). Beyond User-Agent/Originator, harden the decision with a version range, an engine-fingerprint gate, and black/whitelists.",
+diff --git a/frontend/src/i18n/locales/zh/admin/settings.ts b/frontend/src/i18n/locales/zh/admin/settings.ts
+index e0e3c5a..942f367 100644
+--- a/frontend/src/i18n/locales/zh/admin/settings.ts
++++ b/frontend/src/i18n/locales/zh/admin/settings.ts
+@@ -546,6 +546,14 @@ export default {
+           "供已开启 STATE 的账号统一采集票据，日常请求仍走各账号的固定代理。粘贴完整 HTTP / SOCKS5h 代理 URL（含用户名和密码）。用户名里的 {'{'}sid{'}'} 或 1024proxy 的 SID 每次尝试会自动更换。更换池不清除有效票据；留空保存保留现有配置。",
+         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
+         codexTicketHarvestProxyConfigured: '已配置（密码已隐藏）。要更换请整段粘贴新的代理 URL。',
++        codexTicketDefaultEnabled: '新账号默认开启 STATE',
++        codexTicketDefaultEnabledDesc:
++          '开启后，之后新建（含导入、复制）且已绑定固定代理的 OpenAI OAuth 账号会自动按下方默认套餐和目标模型开启票据；现有账号不受影响，手动关闭过的账号也不会再自动开启。',
++        codexTicketDefaultSince: '生效于 {time}，此后创建的账号自动开启。',
++        codexTicketDefaultPlan: '默认套餐',
++        codexTicketDefaultModels: '默认目标模型',
++        codexTicketDefaultModelsHint: '每个模型独立采票；已勾选但缺票的模型会暂停调度到该账号。未绑定固定代理的新账号会等到绑定后再自动开启。',
++        codexTicketDefaultModelsRequired: '至少选择一个模型，留空将按 gpt-6-astra 处理。',
+         codexClientRestrictionTitle: 'Codex 客户端限制',
+         codexHardeningDesc:
+           '仅对已开启「仅允许 Codex 官方客户端」的 OpenAI OAuth 账号生效（全局）。在 User-Agent/Originator 之外，用版本区间、引擎指纹门与黑/白名单巩固判定。',
+diff --git a/frontend/src/views/admin/SettingsView.vue b/frontend/src/views/admin/SettingsView.vue
+index 5077291..223f188 100644
+--- a/frontend/src/views/admin/SettingsView.vue
++++ b/frontend/src/views/admin/SettingsView.vue
+@@ -4522,6 +4522,45 @@
+                   <p v-if="form.openai_codex_ticket_harvest_proxy_configured" class="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="codex-ticket-global-pool-configured">{{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}</p>
+                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}</p>
+                 </div>
++                <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="codex-ticket-defaults">
++                  <div class="flex items-center justify-between gap-4">
++                    <div class="min-w-0">
++                      <h3 class="text-base font-semibold text-gray-900 dark:text-white">
++                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultEnabled") }}
++                      </h3>
++                      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
++                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultEnabledDesc") }}
++                      </p>
++                      <p v-if="form.openai_codex_ticket_default_enabled && form.openai_codex_ticket_default_enabled_since" class="mt-1 text-xs text-emerald-600 dark:text-emerald-400" data-testid="codex-ticket-default-since">
++                        {{ t("admin.settings.gatewayForwarding.codexTicketDefaultSince", { time: formatCodexTicketDefaultSince(form.openai_codex_ticket_default_enabled_since) }) }}
++                      </p>
++                    </div>
++                    <Toggle
++                      id="codex-ticket-default-enabled"
++                      v-model="form.openai_codex_ticket_default_enabled"
++                    />
++                  </div>
++                  <div class="grid gap-4 md:grid-cols-2">
++                    <div>
++                      <label for="codex-ticket-default-plan" class="input-label">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultPlan") }}</label>
++                      <select id="codex-ticket-default-plan" v-model="form.openai_codex_ticket_default_plan" class="input w-full text-sm">
++                        <option value="pro">{{ t("admin.accounts.stateTicket.planPro") }}</option>
++                        <option value="team">{{ t("admin.accounts.stateTicket.planTeam") }}</option>
++                      </select>
++                    </div>
++                    <div>
++                      <p class="input-label">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModels") }}</p>
++                      <div class="flex flex-wrap gap-4 pt-2">
++                        <label v-for="m in CODEX_TICKET_MODELS" :key="m" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
++                          <input v-model="form.openai_codex_ticket_default_models" type="checkbox" :value="m" :data-testid="`codex-ticket-default-model-${m}`" />
++                          <span class="font-mono">{{ m }}</span>
++                        </label>
++                      </div>
++                      <p v-if="form.openai_codex_ticket_default_models.length === 0" class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModelsRequired") }}</p>
++                    </div>
++                  </div>
++                  <p class="text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.gatewayForwarding.codexTicketDefaultModelsHint") }}</p>
++                </div>
+                 <p class="text-sm text-gray-500 dark:text-gray-400">
+                   {{ t("admin.settings.gatewayForwarding.codexTicketAccountHint") }}
+                   <a href="/admin/accounts" class="font-medium text-primary-600 underline dark:text-primary-400">{{ t("admin.settings.gatewayForwarding.codexTicketAccountsLink") }}</a>
+@@ -8894,6 +8933,7 @@ import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vu
+ import GroupBadge from "@/components/common/GroupBadge.vue";
+ import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
+ import Toggle from "@/components/common/Toggle.vue";
++import { CODEX_TICKET_MODELS } from "@/api/admin/codexTickets";
+ import ProxySelector from "@/components/common/ProxySelector.vue";
+ import ImageUpload from "@/components/common/ImageUpload.vue";
+ import BackupSettings from "@/views/admin/BackupView.vue";
+@@ -9611,6 +9651,11 @@ type SettingsForm = Omit<
+ };
+ 
+ const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
++function formatCodexTicketDefaultSince(value: string) {
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return date.toLocaleString(locale.value, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
++}
+ 
+ const form = reactive<SettingsForm>({
+   registration_enabled: true,
+@@ -9868,6 +9913,10 @@ const form = reactive<SettingsForm>({
+   openai_codex_ticket_enabled: false,
+   openai_codex_ticket_harvest_proxy_url: "",
+   openai_codex_ticket_harvest_proxy_configured: false,
++  openai_codex_ticket_default_enabled: false,
++  openai_codex_ticket_default_enabled_since: "",
++  openai_codex_ticket_default_plan: "pro",
++  openai_codex_ticket_default_models: ["gpt-6-astra"],
+   // codex_cli_only 加固
+   min_codex_version: "",
+   max_codex_version: "",
+@@ -11477,6 +11526,9 @@ async function saveSettings() {
+         form.openai_codex_version_auto_sync_enabled,
+       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
+       openai_codex_ticket_harvest_proxy_url: form.openai_codex_ticket_harvest_proxy_url.trim() || undefined,
++      openai_codex_ticket_default_enabled: form.openai_codex_ticket_default_enabled,
++      openai_codex_ticket_default_plan: form.openai_codex_ticket_default_plan,
++      openai_codex_ticket_default_models: [...form.openai_codex_ticket_default_models],
+       min_codex_version: form.min_codex_version?.trim() || "",
+       max_codex_version: form.max_codex_version?.trim() || "",
+       codex_cli_only_allow_app_server_clients:
+diff --git a/frontend/src/views/admin/__tests__/SettingsView.spec.ts b/frontend/src/views/admin/__tests__/SettingsView.spec.ts
+index 7ea7467..18468d9 100644
+--- a/frontend/src/views/admin/__tests__/SettingsView.spec.ts
++++ b/frontend/src/views/admin/__tests__/SettingsView.spec.ts
+@@ -735,6 +735,27 @@ describe("admin SettingsView payment visible method controls", () => {
+     wrapper.unmount();
+   });
+ 
++  it("submits new-account STATE defaults", async () => {
++    getSettings.mockResolvedValueOnce({
++      ...baseSettingsResponse,
++      openai_codex_ticket_default_enabled: false,
++      openai_codex_ticket_default_plan: "pro",
++      openai_codex_ticket_default_models: ["gpt-6-astra"],
++    });
++    const wrapper = mountView();
++    await flushPromises();
++    await wrapper.get("#codex-ticket-default-enabled").setValue(true);
++    await wrapper.get("#codex-ticket-default-plan").setValue("team");
++    await wrapper.get('[data-testid="codex-ticket-default-model-gpt-5.6-sol"]').setValue(true);
++    await wrapper.find("form").trigger("submit.prevent");
++    await flushPromises();
++    const payload = updateSettings.mock.calls[0]?.[0];
++    expect(payload.openai_codex_ticket_default_enabled).toBe(true);
++    expect(payload.openai_codex_ticket_default_plan).toBe("team");
++    expect(payload.openai_codex_ticket_default_models).toEqual(["gpt-6-astra", "gpt-5.6-sol"]);
++    wrapper.unmount();
++  });
++
+   it("edits the shared pool without reusing or displaying stored credentials", async () => {
+     getSettings.mockResolvedValueOnce({
+       ...baseSettingsResponse,
+-- 
+2.53.0
+

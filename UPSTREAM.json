@@ -13,7 +13,7 @@
     },
     "backend/internal/handler/admin/account_codex_ticket_controls.go": {
       "base_sha256": null,
-      "overlay_sha256": "4ba895b842034728c06bb5afa59d6a1a1697c5735f8bf1df62eeb85364874b4a"
+      "overlay_sha256": "da5dbe408c971deb7b3e83f23bea354c4caf3525cb2e514f47970520b2f212fb"
     },
     "backend/internal/handler/admin/account_codex_ticket_controls_test.go": {
       "base_sha256": null,
@@ -27,9 +27,29 @@
       "base_sha256": "d2a1e568681ce6a3fcd408f0be5d7c48f6dd921264e1b8b2eb04fc6281d2c34a",
       "overlay_sha256": "1a7535806a6395d9750e2bcce6fc4a42b97b1be1769c076992447dbcb19ab6d7"
     },
+    "backend/internal/handler/admin/setting_handler.go": {
+      "base_sha256": "8a419b94e24b715ab4cf248debde7ce474d8fbd63f0d60099616749b10de1a26",
+      "overlay_sha256": "1a6743681e71cd119c6e315c72f162ed9154f71645eaff6160ccfdf8b5dbfe75"
+    },
+    "backend/internal/handler/admin/setting_handler_audit.go": {
+      "base_sha256": "d7cc9673f0b4a2727a3e7ab6acd0a03aef9d6ec150990441c88c16ca2bd6a6a8",
+      "overlay_sha256": "bbe7f31d3f41955e89ce52638e30172728418940ed058fe090c6cf6a20106015"
+    },
+    "backend/internal/handler/admin/setting_handler_update.go": {
+      "base_sha256": "dbfc4c91fc59466f36fb3cff3875558124ac783a773db92d50fd7c547011496e",
+      "overlay_sha256": "e2d9cc0ad68f68f3e7e8364580dd9b660679b6ab662af79d1f02411568a897b9"
+    },
+    "backend/internal/handler/dto/settings.go": {
+      "base_sha256": "526a088b7a8336bedf4b9a686a367d4060b4c225177f57adb2f2967299e30a9b",
+      "overlay_sha256": "648db41edfbeb0d5996b90623b74b2e9a467323614b60480f293608e21785f34"
+    },
     "backend/internal/handler/wire.go": {
       "base_sha256": "db1ac76a975cdd4682cb38b1e400ee428962cfe670fe443fa93e16fb2bdff159",
       "overlay_sha256": "1cdf392ad1fe5b923840649893779492f27620b65b8b6aed45225d6306a87799"
+    },
+    "backend/internal/server/api_contract_test.go": {
+      "base_sha256": "3e9c03c97afb571eabfbdd07ecaec408c3d5b1319d43cfa930e04c21f47970fd",
+      "overlay_sha256": "bfaf104439653b4cd22d4fc0c1312ea1ef638e9066497c239504bc98056dd955"
     },
     "backend/internal/server/middleware/audit_log.go": {
       "base_sha256": "3d481edb59d541604e75fdf44f0346bd6b053c9c08d7dee938296b60655dc9ae",
@@ -47,29 +67,37 @@
       "base_sha256": "3ad37413005bf24f6c58f8b247c1ecef6eb71c4236bd2207c62efd8d94db6f36",
       "overlay_sha256": "fe4610ffaf0217ff5f121cc5d1eb61ce56d588e777ae8e47396f3e07e8925835"
     },
+    "backend/internal/service/domain_constants.go": {
+      "base_sha256": "802a011cc1515ab0c71b0248bac94c260b9caafafab537ddb1f9ea47ac20f759",
+      "overlay_sha256": "eae69a54e7bcf9e2feea5af457e9693367ac8e7f54bfd06ae50d7419d703693c"
+    },
     "backend/internal/service/openai_codex_ticket.go": {
       "base_sha256": "137a96d11e8bb7226a6c760c2929e4c527019887bf68c8b6b4a184490f56bae5",
-      "overlay_sha256": "cf9680ece0cba888f13d0956d4bb6c0db67b43d5d8ec3f2198e0173d0e433e4c"
+      "overlay_sha256": "d49bd0a9d90804afb71e5058488e0354a489439a53863b5b78fee407e56bcc60"
     },
     "backend/internal/service/openai_codex_ticket_account.go": {
       "base_sha256": null,
-      "overlay_sha256": "5c1768cb8f03dae7eafc7aa0f6b1eda31c8355ac2b2cea4e94f45d45b3fc11b5"
+      "overlay_sha256": "992bbc31ce7572a2a04633e7c0c980f4810b800e9eddff9e761ff77e6e49e690"
     },
     "backend/internal/service/openai_codex_ticket_global_pool_test.go": {
       "base_sha256": null,
-      "overlay_sha256": "13a9c8d206537235413c494e75a1b3b2b8f20b67dc6a8d30bedc23448c118b2d"
+      "overlay_sha256": "640d10c42d13d160bc06edb01f84c2a5aa707061a703a9e65472b40e8acad528"
     },
     "backend/internal/service/openai_codex_ticket_lifecycle_test.go": {
       "base_sha256": "c8ba9a58e8dfe1050ba0409e1ab2a5574900995e75cef032fd9b9bd4671df78e",
-      "overlay_sha256": "22afb7423cbfbc2852eab8da7a72088e466ec5f08463d977374f96ee48f0b49e"
+      "overlay_sha256": "fa838c7b5afc1a6e215c5eefbd45ebcf8392649e20cff21ff61edefc31fc5ff9"
+    },
+    "backend/internal/service/openai_codex_ticket_multimodel_test.go": {
+      "base_sha256": null,
+      "overlay_sha256": "a35c19c2cc2b6136f3f5edf22fa379aa9717b40896018d38af90405d25c9d715"
     },
     "backend/internal/service/openai_codex_ticket_plan_test.go": {
       "base_sha256": null,
-      "overlay_sha256": "264b563ab61a7592b7bb47336b3a0f6980abfb8915f7058629f3d02f90eb9a1d"
+      "overlay_sha256": "c3d9887a006be76980788a50507e15f976a81b1a6781f0947860ecba7092c82a"
     },
     "backend/internal/service/openai_codex_ticket_retention_test.go": {
       "base_sha256": null,
-      "overlay_sha256": "10b3c8d400312dd8fbf594536b7e635dbf56979f01f069c7ec2062d7bc38f2f5"
+      "overlay_sha256": "b5e1a1cdae6854e58d625a5e81c4f420f37c8e91c4eff3eb54290b535418fd49"
     },
     "backend/internal/service/openai_codex_ticket_test.go": {
       "base_sha256": "e8ac51ffb6681d8a7cdec2e2d75152f9dd8bd9916b5df0ac529aae23058e5772",
@@ -85,11 +113,11 @@
     },
     "backend/internal/service/openai_codex_ticket_watchdog.go": {
       "base_sha256": null,
-      "overlay_sha256": "eae20762d58f8aef77db253eb02f1febc02eefde8a548d405b72419f86b9df26"
+      "overlay_sha256": "e9d4614a5372508817dfe3811c24b2172c77eb6c2edac28b073aec63b5850eed"
     },
     "backend/internal/service/openai_codex_ticket_watchdog_test.go": {
       "base_sha256": null,
-      "overlay_sha256": "16482a96a8bf1d511091cd210e6c1d7b1d1b1ba07a2d0991c9c3279c13f53a6a"
+      "overlay_sha256": "26db0d148f3b982edda2c3cd0b4696ccbfe08d2371011a0fb7dc90875b888cef"
     },
     "backend/internal/service/openai_gateway_forward.go": {
       "base_sha256": "ed07b93d05c4ca5047ce316ad30107a59ba35bfcdd933a6f98e17d82909624ff",
@@ -105,7 +133,7 @@
     },
     "backend/internal/service/openai_gateway_service.go": {
       "base_sha256": "02eb773618b3b1a91ef8cff3236840ae6fe3260671d5ad110f74c940aebc0641",
-      "overlay_sha256": "02988089cd9d2687c84b0936cee4668b1fb7ed74be99081a78ec19dc61c31842"
+      "overlay_sha256": "06601fabd6f417d8b802a6376e19766c6cfa54631209311982e8c41147b008fd"
     },
     "backend/internal/service/openai_plugin_transport.go": {
       "base_sha256": "b0955a1b86682d4dc0736f7e992089dab0034460ef7b781e3408a3bbfa9b079e",
@@ -127,13 +155,37 @@
       "base_sha256": "d3c4f3670ff288c38a1901ded9a973d9de0404a99359d6563d9109687649ffe9",
       "overlay_sha256": "b6a20bb0709e8a5b6ac65e6d5e5dbb68c2f77060ed5f63c805564479f233f733"
     },
+    "backend/internal/service/setting_gateway_runtime.go": {
+      "base_sha256": "2225728b5d4cc6c75a1c66d5f668676604fe285f15c1feae57224fe794c6d0a0",
+      "overlay_sha256": "70dce20502d3f3bb5eb97f2d13572ac7b1b5125ecdeff85681e5adc80e4db644"
+    },
+    "backend/internal/service/setting_parse.go": {
+      "base_sha256": "f15af97bcb87324fb5c3db1c1edd30096929cddaca89ea83732920cb8379059d",
+      "overlay_sha256": "01c9c04dd2829bfa26c6686fec1456f91835c9406b86c1fe5b2433dd825fc4e2"
+    },
+    "backend/internal/service/setting_service.go": {
+      "base_sha256": "ceb348a5958daf36e103bdf9b6e164e6a314d528b2a486228738e47094825c3a",
+      "overlay_sha256": "feabcf29cc0ca0ee09a097c4cc402b0d8306d3be918f329cef8af580b62faab6"
+    },
+    "backend/internal/service/setting_update.go": {
+      "base_sha256": "d2d85b23162347a28111635bab723746e16b9a9702645a288e8c26837bd566a8",
+      "overlay_sha256": "7a2424190bafff299b31f067a3a491c6993f39fec48a77879e1ad28e15a7b3a4"
+    },
+    "backend/internal/service/settings_view.go": {
+      "base_sha256": "b941eeb7006058b9ebbdd00c2e11ff8956f53c583e9857525c16a4bee3e108a1",
+      "overlay_sha256": "a9ee8ad810c095cf9d6b2f2f0d3e6c831f6f83d6f384d87f2a09b6bcf4a212b7"
+    },
     "deploy/config.example.yaml": {
       "base_sha256": "2fd1c809b92da5d764ef7af9ba14ce9ca7894401136d97366ca863fbef8c741a",
       "overlay_sha256": "d626aa45c0a51677461be36235f88a853d25bc0a84cfc4d27c4d2d8fa6c6ad7f"
     },
     "frontend/src/api/admin/codexTickets.ts": {
       "base_sha256": null,
-      "overlay_sha256": "8d49639c1e01624c31c70dbc0c85c024c6ef8b67e38ab84a4654cdc90ee4f132"
+      "overlay_sha256": "7a2ce8828ff29bad18e0545cc99784f09bb5f401b35a5624cfe3656bff6ea904"
+    },
+    "frontend/src/api/admin/settings.ts": {
+      "base_sha256": "92eb87585e977997919f4c25b67e17c4148bfb4d177323ab3ad87e17001d0143",
+      "overlay_sha256": "474ef381811f289f8e5441aa64b55800edf2754c5fcfaae8f8967545c2013da6"
     },
     "frontend/src/components/account/AccountUsageCell.vue": {
       "base_sha256": "db168b09d1917fe9ce63b2e422405c4d8f9bcd784a5a7e98b954a44c103e793c",
@@ -141,7 +193,7 @@
     },
     "frontend/src/components/account/CodexAccountTicketSettings.vue": {
       "base_sha256": null,
-      "overlay_sha256": "fbe74470dbc7b6ab58aecf4a2a95acb976ec6c479ec78b98b5e1e441d2286859"
+      "overlay_sha256": "79373ab9adc4fc57a38a17f2d07692aaa347bd5df96a40ecb62b280a53b11ddb"
     },
     "frontend/src/components/account/EditAccountModal.vue": {
       "base_sha256": "6169491db19a4338f644826b5de75e42fc892a718ac197bce06eb1d51f96a440",
@@ -149,31 +201,31 @@
     },
     "frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts": {
       "base_sha256": null,
-      "overlay_sha256": "de009db94752ccd7f96118c24422d895c3c5adf7c6fda9d69b2a6f21feb1e198"
+      "overlay_sha256": "591f4ab48320a54e7b8977e18a174ba7c02b6aabcbeb475cce4f869a858eafc8"
     },
     "frontend/src/i18n/locales/en/admin/accounts.ts": {
       "base_sha256": "0e27441b25d3a8bd7048f7972172c5cb5c81679f30fec88ce70794ea88f62b5e",
-      "overlay_sha256": "a8a6501219486fd18bb60de7a9c4370fd5c9334deb96ffd89112218c54c2a713"
+      "overlay_sha256": "ccc324dead925c5a2cc94dbf86a9cd3b035da2e51a5d215c58dbd5b3e545e1ba"
     },
     "frontend/src/i18n/locales/en/admin/settings.ts": {
       "base_sha256": "7e5c3d1f5dd13fdfe10b01b684ffdf5658481b3e8a2193f1baff2602cdf43d68",
-      "overlay_sha256": "3c5b5c490a641517c7af46463759dccbc68be93302efc37e4539ff7a92c25c17"
+      "overlay_sha256": "adbb5d0bbdff2066686ad0eb22a58a08f18aec1bcb4d97eb6700e82d8d2696a1"
     },
     "frontend/src/i18n/locales/zh/admin/accounts.ts": {
       "base_sha256": "2d03b3ff311d0d039cd39421aba1b0c048f83dd88d24024ed9d152b18572824d",
-      "overlay_sha256": "ef25a2eedc582ff0889321e81870eb5c87cdbe0788509ef49a386e2ce0d9d084"
+      "overlay_sha256": "bb4da978b3267d5bd9a60dad6b4069a84eae1ab745b375917d41be7d0c980f16"
     },
     "frontend/src/i18n/locales/zh/admin/settings.ts": {
       "base_sha256": "ece1fc402247e19a23ae8f8f7f72f79b206ac675c7ef598f5824d603d2cbb5fc",
-      "overlay_sha256": "4033e87cf262f8d1b2c5c890ff6cd25cd40a54c7205c7a9e02da1edb7e533858"
+      "overlay_sha256": "aa7833d3c8346420e8707c95a966fb153ce2fda6e21538a05e5056048b6656d1"
     },
     "frontend/src/views/admin/SettingsView.vue": {
       "base_sha256": "af06f6cd0cd8882fe9ac6d1700d0e7118734beb4200467e5fcb965a15b677f06",
-      "overlay_sha256": "63314a9f4617f69697bb3dd104a807817f02733763a4bda53d39299e587c527b"
+      "overlay_sha256": "58bdab7a493b673140934540f2f355c2dbaaaa07c8cc05eb3ca050145e156b55"
     },
     "frontend/src/views/admin/__tests__/SettingsView.spec.ts": {
       "base_sha256": "8ca78b9b6dbe0997ed01feb17d50e8124d4d12f4a0a51c146fe59e32464c66c6",
-      "overlay_sha256": "22eaf8c735d737d4d545951e1a8471f2d10110a310c156530355c63d9aaeb97e"
+      "overlay_sha256": "90b2aa53dd06eaa73f074f631456a0c91dc5ffb30c0bdb10147ba0fc59cc71dc"
     }
   }
 }

@@ -151,7 +151,7 @@ func (s *OpenAIGatewayService) invalidateCodexTicketFromResponse(receipt codexTi
 	}
 	// Reuse any running harvest; preserve failure cooldown and bounded attempts.
 	// Successful jobs have no cooldown, so the first signal starts recovery now.
-	s.startCodexAccountTicketJob(ctx, account.ID, false)
+	s.startCodexAccountTicketJob(ctx, account.ID, receipt.model, false)
 }
 
 const codexTicketWatchdogBufferLimit = 1024 * 1024

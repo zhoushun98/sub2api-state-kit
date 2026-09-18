@@ -116,17 +116,22 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 	if !cfg.Enabled || !isOpenAICodexTicketAccount(account) || !ac.Enabled {
 		return nil
 	}
-	status := OpenAICodexTicketStatus{Model: ac.Model}
-	ticket := parseOpenAICodexTicketFromAny(account.ID, ac.Model, account.Extra[openAICodexTicketExtraKey(ac.Model)])
-	if ticket.validFor(account, ac, now) {
-		status.Ready = true
-		status.Length = ticket.Length
-		status.RemainingSeconds = int64(ticket.ExpiresAt.Sub(now) / time.Second)
-		expiry := ticket.ExpiresAt
-		status.ExpiresAt = &expiry
+	models := ac.models()
+	out := make([]OpenAICodexTicketStatus, 0, len(models))
+	for _, model := range models {
+		status := OpenAICodexTicketStatus{Model: model}
+		ticket := parseOpenAICodexTicketFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
+		if ticket.validFor(account, ac, now) {
+			status.Ready = true
+			status.Length = ticket.Length
+			status.RemainingSeconds = int64(ticket.ExpiresAt.Sub(now) / time.Second)
+			expiry := ticket.ExpiresAt
+			status.ExpiresAt = &expiry
+		}
+		status.Blocked = !status.Ready
+		out = append(out, status)
 	}
-	status.Blocked = !status.Ready
-	return []OpenAICodexTicketStatus{status}
+	return out
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketEnabled() bool {
@@ -165,7 +170,7 @@ func (t *openAICodexTicket) valid(now time.Time, _ int) bool {
 		t.ExpiresAt.After(t.CapturedAt) && t.ExpiresAt.Sub(t.CapturedAt) <= time.Hour
 }
 func (t *openAICodexTicket) validFor(account *Account, ac codexAccountTicketConfig, now time.Time) bool {
-	return account != nil && ac.Enabled && t.valid(now, 0) && t.Length == codexTicketTargetLength(ac.TicketPlan) && t.AccountID == account.ID && t.Model == ac.Model &&
+	return account != nil && ac.Enabled && t.valid(now, 0) && t.Length == codexTicketTargetLength(ac.TicketPlan) && t.AccountID == account.ID && ac.hasModel(t.Model) &&
 		t.ConfigRevision == ac.Revision && t.FixedProxyFingerprint == codexTicketFixedProxyFingerprint(account)
 }
 func validCodexTicketState(state string) bool {
@@ -192,7 +197,7 @@ func (s *OpenAIGatewayService) lookupOpenAICodexTicket(account *Account, model s
 		return nil
 	}
 	ac := codexAccountTicketConfigOf(account)
-	if !ac.Enabled || ac.Model != normalizeOpenAICodexTicketModel(model) {
+	if !ac.Enabled || !ac.hasModel(model) {
 		return nil
 	}
 	now := time.Now()
@@ -279,7 +284,7 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithReceipt(ctx context.Con
 		return nil, nil
 	}
 	ac := codexAccountTicketConfigOf(live)
-	if !isOpenAICodexTicketAccount(live) || !ac.Enabled || ac.Model != normalizeOpenAICodexTicketModel(model) {
+	if !isOpenAICodexTicketAccount(live) || !ac.Enabled || !ac.hasModel(model) {
 		return nil, nil
 	}
 	// A scheduler snapshot with a different business proxy must be reselected.
@@ -336,13 +341,13 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 	live, err := s.codexTicketLiveAccount(ctx, account)
 	if err != nil {
 		ac := codexAccountTicketConfigOf(account)
-		return ac.Enabled && ac.Model == normalizeOpenAICodexTicketModel(outboundModel)
+		return ac.Enabled && ac.hasModel(outboundModel)
 	}
 	ac := codexAccountTicketConfigOf(live)
-	if !ac.Enabled || !isOpenAICodexTicketAccount(live) || ac.Model != normalizeOpenAICodexTicketModel(outboundModel) {
+	if !ac.Enabled || !isOpenAICodexTicketAccount(live) || !ac.hasModel(outboundModel) {
 		return false
 	}
-	return !s.lookupOpenAICodexTicket(live, ac.Model).validFor(live, ac, time.Now())
+	return !s.lookupOpenAICodexTicket(live, normalizeOpenAICodexTicketModel(outboundModel)).validFor(live, ac, time.Now())
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {
@@ -508,26 +513,32 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	defaults := s.openAICodexTicketDefaultsContext(ctx)
 	for i := range accounts {
 		account := &accounts[i]
+		if defaults.Enabled {
+			s.adoptCodexAccountTicketDefaults(ctx, account, defaults)
+		}
 		ac := codexAccountTicketConfigOf(account)
 		if !codexAccountTicketEligible(account) || !ac.Enabled {
 			continue
 		}
-		ticket := s.lookupOpenAICodexTicket(account, ac.Model)
-		if ticket.validFor(account, ac, time.Now()) && !ticket.needsRefresh(time.Now(), 10*time.Minute) {
-			continue
+		for _, model := range ac.models() {
+			ticket := s.lookupOpenAICodexTicket(account, model)
+			if ticket.validFor(account, ac, time.Now()) && !ticket.needsRefresh(time.Now(), 10*time.Minute) {
+				continue
+			}
+			s.startCodexAccountTicketJob(ctx, account.ID, model, false)
 		}
-		s.startCodexAccountTicketJob(ctx, account.ID, false)
 	}
 }
 
 // Compatibility helper for tests and internal callers: one bounded, opted-in account job.
 func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, account *Account, model string) {
-	if account == nil || codexAccountTicketConfigOf(account).Model != model {
+	if account == nil || !codexAccountTicketConfigOf(account).hasModel(model) {
 		return
 	}
-	job := s.startCodexAccountTicketJob(ctx, account.ID, false)
+	job := s.startCodexAccountTicketJob(ctx, account.ID, model, false)
 	if job != nil {
 		select {
 		case <-job.done:

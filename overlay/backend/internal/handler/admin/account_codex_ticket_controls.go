@@ -65,11 +65,12 @@ func (h *AccountHandler) UpdateCodexAccountTicket(c *gin.Context) {
 		return
 	}
 	var req struct {
-		TicketPlan string `json:"ticket_plan"`
-		Enabled    *bool  `json:"enabled"`
-		ProxyURL   string `json:"proxy_url"`
-		Model      string `json:"model"`
-		ClearProxy bool   `json:"clear_proxy"`
+		TicketPlan string   `json:"ticket_plan"`
+		Enabled    *bool    `json:"enabled"`
+		ProxyURL   string   `json:"proxy_url"`
+		Model      string   `json:"model"`
+		Models     []string `json:"models"`
+		ClearProxy bool     `json:"clear_proxy"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16*1024)
 	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
@@ -77,7 +78,7 @@ func (h *AccountHandler) UpdateCodexAccountTicket(c *gin.Context) {
 		return
 	}
 	status, err := h.codexAccountTickets.ConfigureCodexAccountTicket(c.Request.Context(), id, service.CodexAccountTicketUpdate{
-		TicketPlan: req.TicketPlan, Enabled: *req.Enabled, ProxyURL: req.ProxyURL, Model: req.Model, ClearProxy: req.ClearProxy,
+		TicketPlan: req.TicketPlan, Enabled: *req.Enabled, ProxyURL: req.ProxyURL, Model: req.Model, Models: req.Models, ClearProxy: req.ClearProxy,
 	})
 	if !codexTicketControlError(c, err) {
 		response.Success(c, status)

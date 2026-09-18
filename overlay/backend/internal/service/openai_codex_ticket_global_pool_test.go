@@ -55,7 +55,7 @@ func TestCodexAccountTicketGlobalPoolOverridesLegacyAccountProxy(t *testing.T) {
 	other := ticketTestAccount(42)
 	other.Extra = map[string]any{} // The global pool must not opt in a normal account.
 	repo.accounts = append(repo.accounts, *other)
-	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
+	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 	require.Equal(t, int64(2), calls.Load())
 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestCodexAccountTicketGlobalPoolOverridesLegacyAccountProxy(t *testing.T) {
 	require.True(t, otherStatus.ProxyConfigured)
 	s.refreshOpenAICodexTickets(context.Background())
 	require.Equal(t, int64(2), calls.Load())
-	require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 42, true))
+	require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 42, openAICodexTicketDefaultModel, true))
 	for _, input := range []CodexAccountTicketUpdate{{Enabled: true, ProxyURL: legacy.ProxyURL}, {Enabled: true, ClearProxy: true}} {
 		_, err := s.ConfigureCodexAccountTicket(context.Background(), 41, input)
 		require.Error(t, err)
@@ -124,7 +124,7 @@ func TestCodexAccountTicketGlobalPoolChangeRejectsOldJobPublication(t *testing.T
 			}})
 			pool := &codexTicketGlobalPoolRepo{pool: "http://old.example.com:8080"}
 			s.settingService = NewSettingService(pool, s.cfg)
-			oldJob := s.startCodexAccountTicketJob(context.Background(), 41, true)
+			oldJob := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 			select {
 			case <-started:
 			case <-time.After(3 * time.Second):
@@ -137,7 +137,7 @@ func TestCodexAccountTicketGlobalPoolChangeRejectsOldJobPublication(t *testing.T
 			require.NoError(t, err)
 			require.Nil(t, s.lookupOpenAICodexTicket(live, openAICodexTicketDefaultModel))
 			// A cooldown from the old source does not delay the newly configured pool.
-			newJob := s.startCodexAccountTicketJob(context.Background(), 41, false)
+			newJob := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, false)
 			require.NotSame(t, oldJob, newJob)
 			waitCodexTicketJob(t, newJob)
 			status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
@@ -156,7 +156,7 @@ func TestCodexAccountTicketMissingGlobalPoolNeverUsesLegacyOverride(t *testing.T
 	require.True(t, status.Enabled)
 	require.False(t, status.ProxyConfigured)
 	require.Equal(t, "error", status.State)
-	require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
+	require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 	_, err = s.HarvestCodexAccountTicket(context.Background(), 41)
 	require.Error(t, err)
 	_, err = s.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: true})

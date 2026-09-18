@@ -26,11 +26,29 @@
         <p v-else class="text-amber-700 dark:text-amber-300">{{ t('admin.accounts.stateTicket.globalPoolMissing') }}</p>
         <p>{{ t('admin.accounts.stateTicket.globalPoolHint') }} <a href="/admin/settings?tab=gateway" target="_blank" rel="noopener noreferrer" class="font-medium underline">{{ t('admin.accounts.stateTicket.gatewaySettings') }}</a></p>
       </div>
-      <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.stateTicket.model', { model: status.model }) }}</p>
+      <div data-testid="codex-account-ticket-models">
+        <p class="input-label">{{ t('admin.accounts.stateTicket.models') }}</p>
+        <div class="flex flex-wrap gap-4">
+          <label v-for="m in CODEX_TICKET_MODELS" :key="m" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+            <input v-model="models" type="checkbox" :value="m" :disabled="busy" :data-testid="`codex-account-ticket-model-${m}`" />
+            <span class="font-mono">{{ m }}</span>
+          </label>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.stateTicket.modelsHint') }}</p>
+        <p v-if="models.length === 0" class="mt-1 text-xs text-amber-700 dark:text-amber-300" data-testid="codex-account-ticket-models-required">{{ t('admin.accounts.stateTicket.modelsRequired') }}</p>
+      </div>
       <div class="flex flex-wrap items-center gap-2 text-sm" aria-live="polite" data-testid="codex-account-ticket-status">
         <span :data-testid="refreshingUsable ? 'codex-account-ticket-refreshing-usable' : undefined" :class="status.state === 'ready' || refreshingUsable ? 'text-emerald-600 dark:text-emerald-400' : status.state === 'error' ? 'text-amber-700 dark:text-amber-300' : 'text-gray-600 dark:text-gray-300'">{{ stateLabel }}</span>
         <span v-if="status.state === 'harvesting' && status.attempts" class="text-xs text-gray-500">{{ t('admin.accounts.stateTicket.attempts', { count: status.attempts }) }}</span>
       </div>
+      <ul v-if="modelStatuses.length" class="space-y-1 rounded bg-gray-50 p-2 text-xs dark:bg-dark-700" aria-live="polite" data-testid="codex-account-ticket-model-status">
+        <li v-for="ms in modelStatuses" :key="ms.model" class="flex flex-wrap items-center gap-2">
+          <span class="font-mono text-gray-700 dark:text-gray-200">{{ ms.model }}</span>
+          <span :class="ms.ticket_usable ? 'text-emerald-600 dark:text-emerald-400' : ms.state === 'error' ? 'text-amber-700 dark:text-amber-300' : 'text-gray-600 dark:text-gray-300'">{{ modelStateLabel(ms) }}</span>
+          <span v-if="ms.state === 'harvesting' && ms.attempts" class="text-gray-500">{{ t('admin.accounts.stateTicket.attempts', { count: ms.attempts }) }}</span>
+          <span v-if="ms.last_error" class="break-words text-amber-700 dark:text-amber-300">{{ ms.last_error }}</span>
+        </li>
+      </ul>
       <div v-if="savedTicket" class="space-y-1 rounded bg-emerald-50 p-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200" data-testid="codex-account-ticket-saved-ticket">
         <p class="font-medium">{{ t('admin.accounts.stateTicket.savedTicket') }}</p>
         <p v-if="capturedAt || expiresAt" class="flex flex-wrap gap-x-3 gap-y-1">
@@ -57,11 +75,11 @@
           <span v-if="watchdogLastTriggeredAt"> · {{ watchdogLastTriggeredAt }}</span>
         </p>
       </div>
-      <p v-if="status.last_error" class="break-words text-xs text-amber-700 dark:text-amber-300" data-testid="codex-account-ticket-error">{{ status.last_error }}</p>
+      <p v-if="status.last_error && !modelStatuses.length" class="break-words text-xs text-amber-700 dark:text-amber-300" data-testid="codex-account-ticket-error">{{ status.last_error }}</p>
       <p v-if="proxyChanged" class="text-xs text-amber-700 dark:text-amber-300">{{ t('admin.accounts.stateTicket.fixedProxyUnsaved') }}</p>
       <p v-else-if="dirty" class="text-xs text-gray-500">{{ t('admin.accounts.stateTicket.unsaved') }}</p>
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-primary btn-sm" :disabled="busy || !dirty || proxyChanged || (enabled && !status.proxy_configured)" data-testid="codex-account-ticket-save" @click="save">
+        <button type="button" class="btn btn-primary btn-sm" :disabled="busy || !dirty || proxyChanged || models.length === 0 || (enabled && !status.proxy_configured)" data-testid="codex-account-ticket-save" @click="save">
           {{ t('admin.accounts.stateTicket.save') }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || dirty || proxyChanged || !status.global_enabled || !status.enabled || !status.proxy_configured || status.state === 'harvesting'" data-testid="codex-account-ticket-harvest" @click="harvest">
@@ -80,13 +98,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
-import { getCodexAccountTicket, saveCodexAccountTicket, harvestCodexAccountTicket, type CodexAccountTicketStatus, type CodexTicketPlan } from '@/api/admin/codexTickets'
+import { getCodexAccountTicket, saveCodexAccountTicket, harvestCodexAccountTicket, CODEX_TICKET_MODELS, type CodexAccountTicketModelStatus, type CodexAccountTicketStatus, type CodexTicketPlan } from '@/api/admin/codexTickets'
 
 const props = defineProps<{ accountId: number; visible: boolean; proxyChanged?: boolean }>()
 const { t, locale } = useI18n()
 const status = ref<CodexAccountTicketStatus | null>(null)
 const enabled = ref(false)
 const ticketPlan = ref<CodexTicketPlan>('pro')
+const models = ref<string[]>([CODEX_TICKET_MODELS[0]])
 const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -94,7 +113,15 @@ const saved = ref(false)
 let generation = 0
 let revision = 0
 let timer: ReturnType<typeof setTimeout> | undefined
-const dirty = computed(() => !!status.value && (enabled.value !== status.value.enabled || ticketPlan.value !== status.value.ticket_plan))
+function modelsOf(s: CodexAccountTicketStatus): string[] {
+  return s.models && s.models.length > 0 ? s.models : [s.model]
+}
+function sameModels(a: string[], b: string[]) {
+  return [...a].sort().join(',') === [...b].sort().join(',')
+}
+const statusModels = computed(() => (status.value ? modelsOf(status.value) : []))
+const modelStatuses = computed(() => status.value?.model_statuses ?? [])
+const dirty = computed(() => !!status.value && (enabled.value !== status.value.enabled || ticketPlan.value !== status.value.ticket_plan || !sameModels(models.value, statusModels.value)))
 const hasUsableTicket = computed(() => status.value?.ticket_usable === true)
 const refreshingUsable = computed(() => status.value?.state === 'harvesting' && hasUsableTicket.value)
 const savedTicket = computed(() => hasUsableTicket.value && !!(capturedAt.value || expiresAt.value))
@@ -111,6 +138,11 @@ const stateLabel = computed(() => {
   }
   return t(`admin.accounts.stateTicket.states.${status.value.state}`)
 })
+function modelStateLabel(ms: CodexAccountTicketModelStatus) {
+  if (ms.state === 'harvesting' && ms.ticket_usable) return t('admin.accounts.stateTicket.refreshing', { time: formatRemaining(ms.remaining_seconds) })
+  if (ms.ticket_usable) return t('admin.accounts.stateTicket.ready', { time: formatRemaining(ms.remaining_seconds) })
+  return t(`admin.accounts.stateTicket.states.${ms.state}`)
+}
 const watchdogLastReason = computed(() => {
   const reason = status.value?.watchdog.last_reason
   if (reason === 'model_mismatch') return t('admin.accounts.stateTicket.watchdogModelMismatch')
@@ -132,7 +164,7 @@ function formatLocalDate(value?: string) {
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleString(locale.value, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
-watch([enabled, ticketPlan], () => { saved.value = false }, { flush: 'sync' })
+watch([enabled, ticketPlan, models], () => { saved.value = false }, { deep: true, flush: 'sync' })
 
 async function load(initial = false) {
   const currentGeneration = generation
@@ -146,6 +178,7 @@ async function load(initial = false) {
     if (initial) {
       enabled.value = next.enabled
       ticketPlan.value = next.ticket_plan
+      models.value = [...modelsOf(next)]
     }
     error.value = ''
   } catch {
@@ -174,12 +207,14 @@ async function save() {
   try {
     const next = await saveCodexAccountTicket(props.accountId, {
       enabled: enabled.value,
-      ticket_plan: ticketPlan.value
+      ticket_plan: ticketPlan.value,
+      models: [...models.value]
     })
     if (generation !== currentGeneration) return
     status.value = next
     enabled.value = next.enabled
     ticketPlan.value = next.ticket_plan
+    models.value = [...modelsOf(next)]
     // Keep success feedback after the draft watchers have cleared the old message.
     saved.value = true
   } catch {
@@ -213,6 +248,7 @@ watch(() => [props.accountId, props.visible] as const, async () => {
   status.value = null
   enabled.value = false
   ticketPlan.value = 'pro'
+  models.value = [CODEX_TICKET_MODELS[0]]
   error.value = ''
   saved.value = false
   busy.value = false

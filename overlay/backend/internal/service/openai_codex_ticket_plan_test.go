@@ -50,7 +50,7 @@ func TestCodexAccountTicketPlanChangeInvalidatesTicketAndJob(t *testing.T) {
 	s.openaiCodexTickets.Store(openAICodexTicketKey(41, oldTicket.Model), oldTicket)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s.openaiCodexAccountJobs = map[int64]*codexAccountTicketJob{41: {revision: oldTicket.ConfigRevision, cancel: cancel, running: true}}
+	s.openaiCodexAccountJobs = map[string]*codexAccountTicketJob{codexTicketJobKey(41, openAICodexTicketDefaultModel): {revision: oldTicket.ConfigRevision, cancel: cancel, running: true}}
 	_, err := s.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: true, TicketPlan: "team"})
 	require.NoError(t, err)
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
@@ -106,7 +106,7 @@ func TestCodexAccountTicketHarvestEnforcesManualPlanBeforeFixedReplay(t *testing
 			ac := codexAccountTicketConfigOf(&repo.accounts[0])
 			ac.TicketPlan = tc.plan
 			repo.accounts[0].Extra[codexAccountTicketConfigKey] = ac
-			waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
+			waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 			require.Equal(t, int64(3), calls.Load())
 			live, err := repo.GetByID(context.Background(), 41)
 			require.NoError(t, err)

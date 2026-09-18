@@ -4,7 +4,8 @@ import CodexAccountTicketSettings from '../CodexAccountTicketSettings.vue'
 import type { CodexAccountTicketStatus } from '@/api/admin/codexTickets'
 
 const api = vi.hoisted(() => ({
-  getCodexAccountTicket: vi.fn(), saveCodexAccountTicket: vi.fn(), harvestCodexAccountTicket: vi.fn()
+  getCodexAccountTicket: vi.fn(), saveCodexAccountTicket: vi.fn(), harvestCodexAccountTicket: vi.fn(),
+  CODEX_TICKET_MODELS: ['gpt-6-astra', 'gpt-5.6-sol'] as const
 }))
 vi.mock('@/api/admin/codexTickets', () => api)
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => `${key}${params ? JSON.stringify(params) : ''}`, locale: { value: 'zh-CN' } }) }))
@@ -41,7 +42,7 @@ describe('CodexAccountTicketSettings', () => {
     api.saveCodexAccountTicket.mockResolvedValue(makeStatus({ enabled: true, proxy_configured: true, state: 'waiting' }))
     await wrapper.get(selector('save')).trigger('click')
     await flushPromises()
-    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro' })
+    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro', models: ['gpt-6-astra'] })
     expect(wrapper.get(selector('harvest')).attributes('disabled')).toBeUndefined()
     expect(wrapper.text()).toContain('admin.accounts.stateTicket.saved')
   })
@@ -69,7 +70,7 @@ describe('CodexAccountTicketSettings', () => {
     api.saveCodexAccountTicket.mockResolvedValue(makeStatus({ enabled: true, global_enabled: false, proxy_configured: true, state: 'global_disabled' }))
     await wrapper.get(selector('save')).trigger('click')
     await flushPromises()
-    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro' })
+    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro', models: ['gpt-6-astra'] })
     expect(wrapper.get(selector('harvest')).attributes('disabled')).toBeDefined()
     expect(api.harvestCodexAccountTicket).not.toHaveBeenCalled()
   })
@@ -111,7 +112,7 @@ describe('CodexAccountTicketSettings', () => {
     api.saveCodexAccountTicket.mockResolvedValue(makeStatus({ enabled: true, ticket_plan: 'team', target_length: 332, proxy_configured: true, state: 'waiting' }))
     await wrapper.get(selector('save')).trigger('click')
     await flushPromises()
-    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'team' })
+    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'team', models: ['gpt-6-astra'] })
     expect((wrapper.get(selector('plan')).element as HTMLSelectElement).value).toBe('team')
     expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
     expect(wrapper.get(selector('status')).text()).toContain('waiting')
@@ -243,5 +244,25 @@ describe('CodexAccountTicketSettings', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('saveFailed')
     expect(wrapper.text()).not.toContain('secret')
+  })
+
+  it('lets an account hold tickets for both models and shows per-model status', async () => {
+    api.getCodexAccountTicket.mockResolvedValue(makeStatus({ enabled: true, proxy_configured: true, state: 'ready', remaining_seconds: 1800, models: ['gpt-6-astra'], model_statuses: [{ model: 'gpt-6-astra', state: 'ready', ticket_usable: true, remaining_seconds: 1800, last_error: '', attempts: 1 }] }))
+    const wrapper = mountCard()
+    await flushPromises()
+    expect(wrapper.get(selector('model-status')).text()).toContain('gpt-6-astra')
+    expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
+    await wrapper.get(selector('model-gpt-5.6-sol')).setValue(true)
+    expect(wrapper.get(selector('save')).attributes('disabled')).toBeUndefined()
+    api.saveCodexAccountTicket.mockResolvedValue(makeStatus({ enabled: true, proxy_configured: true, state: 'harvesting', models: ['gpt-6-astra', 'gpt-5.6-sol'], model_statuses: [{ model: 'gpt-6-astra', state: 'ready', ticket_usable: true, remaining_seconds: 1800, last_error: '', attempts: 1 }, { model: 'gpt-5.6-sol', state: 'harvesting', ticket_usable: false, remaining_seconds: 0, last_error: '', attempts: 1 }] }))
+    await wrapper.get(selector('save')).trigger('click')
+    await flushPromises()
+    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro', models: ['gpt-6-astra', 'gpt-5.6-sol'] })
+    expect(wrapper.get(selector('model-status')).text()).toContain('gpt-5.6-sol')
+    expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
+    await wrapper.get(selector('model-gpt-6-astra')).setValue(false)
+    await wrapper.get(selector('model-gpt-5.6-sol')).setValue(false)
+    expect(wrapper.find(selector('models-required')).exists()).toBe(true)
+    expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
   })
 })

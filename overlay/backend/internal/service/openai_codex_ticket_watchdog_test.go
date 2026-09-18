@@ -50,7 +50,7 @@ func TestCodexTicketWatchdogResponseRecoversWithoutReplayingBusiness(t *testing.
 			old := verifiedTestTicket(a, 292)
 			s.storeOpenAICodexTicket(context.Background(), a, old)
 			// A successful harvest must not hold a cooldown against a real signal.
-			s.openaiCodexAccountJobs = map[int64]*codexAccountTicketJob{41: {revision: old.ConfigRevision}}
+			s.openaiCodexAccountJobs = map[string]*codexAccountTicketJob{codexTicketJobKey(41, openAICodexTicketDefaultModel): {revision: old.ConfigRevision}}
 			req := watchdogArmRequest(t, s, a)
 			resp, err := s.doOpenAIUpstream(req, a.Proxy.URL(), a)
 			require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestCodexTicketWatchdogResponseRecoversWithoutReplayingBusiness(t *testing.
 			require.NoError(t, resp.Body.Close())
 			require.Equal(t, payload, string(got), "watchdog must not rewrite a business response")
 			s.openaiCodexAccountMu.Lock()
-			job := s.openaiCodexAccountJobs[41]
+			job := s.openaiCodexAccountJobs[codexTicketJobKey(41, openAICodexTicketDefaultModel)]
 			s.openaiCodexAccountMu.Unlock()
 			waitCodexTicketJob(t, job)
 			require.Equal(t, int64(1), business.Load())
@@ -253,7 +253,7 @@ func TestCodexTicketWatchdogMultipleRevocationsCannotResurrectEarlierTicket(t *t
 	first := verifiedTestTicket(a, 292)
 	s.storeOpenAICodexTicket(context.Background(), a, first)
 	a.Extra[openAICodexTicketExtraKey(first.Model)] = first
-	s.openaiCodexAccountJobs = map[int64]*codexAccountTicketJob{41: {revision: first.ConfigRevision, harvestProxyURL: s.openAICodexTicketHarvestProxyURL(), retryAfter: time.Now().Add(time.Minute), lastError: "cooldown"}}
+	s.openaiCodexAccountJobs = map[string]*codexAccountTicketJob{codexTicketJobKey(41, openAICodexTicketDefaultModel): {revision: first.ConfigRevision, harvestProxyURL: s.openAICodexTicketHarvestProxyURL(), retryAfter: time.Now().Add(time.Minute), lastError: "cooldown"}}
 	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(first), "model_mismatch")
 	second := *first
 	second.CapturedAt = second.CapturedAt.Add(time.Millisecond)
@@ -274,9 +274,9 @@ func TestCodexTicketWatchdogPreservesFailedHarvestCooldown(t *testing.T) {
 	old := verifiedTestTicket(a, 292)
 	s.storeOpenAICodexTicket(context.Background(), a, old)
 	job := &codexAccountTicketJob{revision: old.ConfigRevision, harvestProxyURL: s.openAICodexTicketHarvestProxyURL(), retryAfter: time.Now().Add(time.Minute), lastError: "previous failure"}
-	s.openaiCodexAccountJobs = map[int64]*codexAccountTicketJob{41: job}
+	s.openaiCodexAccountJobs = map[string]*codexAccountTicketJob{codexTicketJobKey(41, openAICodexTicketDefaultModel): job}
 	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(old), "model_mismatch")
-	require.Same(t, job, s.openaiCodexAccountJobs[41])
+	require.Same(t, job, s.openaiCodexAccountJobs[codexTicketJobKey(41, openAICodexTicketDefaultModel)])
 	require.False(t, job.running)
 	require.Nil(t, s.lookupOpenAICodexTicket(a, old.Model))
 }
@@ -291,7 +291,7 @@ func TestCodexTicketWatchdogHarvestRejectsFixedReplay312Signal(t *testing.T) {
 		}
 		return response, nil
 	}})
-	job := s.startCodexAccountTicketJob(context.Background(), 41, true)
+	job := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 	waitCodexTicketJob(t, job)
 	require.Equal(t, int64(4), calls.Load())
 	require.Equal(t, 2, job.attempts)

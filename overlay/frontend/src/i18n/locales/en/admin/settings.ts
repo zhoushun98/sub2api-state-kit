@@ -553,6 +553,14 @@ export default {
           "Shared by accounts with STATE enabled; normal requests keep each account's fixed proxy. Paste a full HTTP / SOCKS5h proxy URL including credentials. A username {'{'}sid{'}'} placeholder or 1024proxy SID is replaced on every attempt. Changing the pool preserves valid tickets. Leave blank to keep the saved pool.",
         codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
         codexTicketHarvestProxyConfigured: "Configured (password hidden). Paste a full new proxy URL to replace it.",
+        codexTicketDefaultEnabled: "Enable STATE for new accounts by default",
+        codexTicketDefaultEnabledDesc:
+          "When on, OpenAI OAuth accounts created afterwards (including imports and copies) that have a fixed proxy bound are enabled automatically with the default plan and models below. Existing accounts are untouched, and accounts you turned off manually stay off.",
+        codexTicketDefaultSince: "Effective since {time}; accounts created after that are enabled automatically.",
+        codexTicketDefaultPlan: "Default plan",
+        codexTicketDefaultModels: "Default target models",
+        codexTicketDefaultModelsHint: "Each model harvests its own ticket; a selected model without a ticket is paused on that account. New accounts without a fixed proxy are enabled once one is bound.",
+        codexTicketDefaultModelsRequired: "Select at least one model; an empty selection falls back to gpt-6-astra.",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:
           "Only affects OpenAI OAuth accounts with 'Codex official clients only' enabled (global). Beyond User-Agent/Originator, harden the decision with a version range, an engine-fingerprint gate, and black/whitelists.",

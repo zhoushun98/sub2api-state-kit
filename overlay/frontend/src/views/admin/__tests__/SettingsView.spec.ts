@@ -735,6 +735,27 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("submits new-account STATE defaults", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_default_enabled: false,
+      openai_codex_ticket_default_plan: "pro",
+      openai_codex_ticket_default_models: ["gpt-6-astra"],
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get("#codex-ticket-default-enabled").setValue(true);
+    await wrapper.get("#codex-ticket-default-plan").setValue("team");
+    await wrapper.get('[data-testid="codex-ticket-default-model-gpt-5.6-sol"]').setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    const payload = updateSettings.mock.calls[0]?.[0];
+    expect(payload.openai_codex_ticket_default_enabled).toBe(true);
+    expect(payload.openai_codex_ticket_default_plan).toBe("team");
+    expect(payload.openai_codex_ticket_default_models).toEqual(["gpt-6-astra", "gpt-5.6-sol"]);
+    wrapper.unmount();
+  });
+
   it("edits the shared pool without reusing or displaying stored credentials", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

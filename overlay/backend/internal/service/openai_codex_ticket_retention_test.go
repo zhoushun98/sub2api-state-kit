@@ -41,7 +41,7 @@ func TestCodexAccountTicketRejectionStopsRoundAndRetainsSavedTicket(t *testing.T
 				old.CapturedAt = time.Now().Add(-52 * time.Minute)
 				old.ExpiresAt = old.CapturedAt.Add(time.Hour)
 				require.NoError(t, repo.UpdateExtra(context.Background(), 41, map[string]any{openAICodexTicketExtraKey(old.Model): old}))
-				job := s.startCodexAccountTicketJob(context.Background(), 41, true)
+				job := s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true)
 				select {
 				case <-started:
 				case <-time.After(3 * time.Second):
@@ -69,7 +69,7 @@ func TestCodexAccountTicketRejectionStopsRoundAndRetainsSavedTicket(t *testing.T
 				require.Contains(t, status.LastError, strconv.Itoa(code))
 				require.NotNil(t, status.RetryAfter)
 				require.True(t, status.RetryAfter.After(time.Now().Add(4*time.Minute)))
-				require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, false))
+				require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, false))
 				encoded, err := json.Marshal(status)
 				require.NoError(t, err)
 				require.NotContains(t, string(encoded), old.State)
@@ -110,7 +110,7 @@ func TestCodexAccountTicketSaveFailurePreservesDurableTicket(t *testing.T) {
 	old.ExpiresAt = old.CapturedAt.Add(time.Hour)
 	require.NoError(t, repo.UpdateExtra(context.Background(), 41, map[string]any{openAICodexTicketExtraKey(old.Model): old}))
 	s.accountRepo = &codexTicketFailSaveRepo{repo}
-	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
+	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
 	require.NoError(t, err)
 	require.True(t, status.TicketUsable)
