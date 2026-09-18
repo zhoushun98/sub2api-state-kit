@@ -68,7 +68,7 @@ func TestCodexAccountTicketRejectionStopsRoundAndRetainsSavedTicket(t *testing.T
 				require.False(t, status.Refreshing)
 				require.Contains(t, status.LastError, strconv.Itoa(code))
 				require.NotNil(t, status.RetryAfter)
-				require.True(t, status.RetryAfter.After(time.Now().Add(4*time.Minute)))
+				require.True(t, status.RetryAfter.After(time.Now().Add(codexTicketRetryCooldown-10*time.Second)))
 				require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, false))
 				encoded, err := json.Marshal(status)
 				require.NoError(t, err)

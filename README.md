@@ -1,6 +1,6 @@
 # Sub2API STATE Kit
 
-> 本仓库是 [wangyunjeff/sub2api-state-kit](https://github.com/wangyunjeff/sub2api-state-kit) 的 fork，在原版 0.1.0 之上追加了下面两项改造；构建好的镜像发布在 Docker Hub `zhoushun98/sub2api`。原作者的说明从「相比上游增加了什么」一节起原样保留。
+> 本仓库是 [wangyunjeff/sub2api-state-kit](https://github.com/wangyunjeff/sub2api-state-kit) 的 fork，在原版 0.1.0 之上追加了下面三项改造；构建好的镜像发布在 Docker Hub `zhoushun98/sub2api`。原作者的说明从「相比上游增加了什么」一节起原样保留。
 
 ## 本 fork 的改动（2026-09-19）
 
@@ -16,11 +16,17 @@
 - 只认领在开启该默认之后创建、已绑定固定代理、且从未手动配置过票据的 OpenAI OAuth 账号（含导入、复制）；存量账号与手动关闭过的账号不受影响；未绑代理的新账号绑上后才自动开启；关闭再开启会重新计时。
 - 设置键：`openai_codex_ticket_default_enabled` / `_enabled_since` / `_plan` / `_models`。
 
+### 0.1.3：采票重试改激进
+
+- 每轮采集最多 30 次尝试（原 8 次），一轮失败后冷却 1 分钟（原 5 分钟）；到期前 10 分钟开始续期不变。
+- 原策略在续期窗口里只能跑两轮，连续失败会在票过期后出现该模型的调度空隙；改后窗口内可跑约 75 次。401 / 403 / 429 仍立即终止整轮。
+
 ### 镜像与构建
 
-- `zhoushun98/sub2api:state-kit-0.1.2-defaults`（linux/amd64，含以上全部改动）
+- `zhoushun98/sub2api:state-kit-0.1.3-retry`（linux/amd64，含以上全部改动）
+- `zhoushun98/sub2api:state-kit-0.1.2-defaults`
 - `zhoushun98/sub2api:state-kit-0.1.1-multimodel`
-- 构建：`python3 scripts/prepare.py ../sub2api-state-source && cd ../sub2api-state-source && docker build --build-arg VERSION=0.2.6-state-kit.0.1.2-defaults -t sub2api:state-kit-0.1.2-defaults .`
+- 构建：`python3 scripts/prepare.py ../sub2api-state-source && cd ../sub2api-state-source && docker build --build-arg VERSION=0.2.6-state-kit.0.1.3-retry -t sub2api:state-kit-0.1.3-retry .`
 
 ### 验证
 

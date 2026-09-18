@@ -1,0 +1,71 @@
+diff --git a/backend/internal/service/openai_codex_ticket_account.go b/backend/internal/service/openai_codex_ticket_account.go
+index a9ab9a4..3c65e23 100644
+--- a/backend/internal/service/openai_codex_ticket_account.go
++++ b/backend/internal/service/openai_codex_ticket_account.go
+@@ -24,8 +24,15 @@ import (
+ )
+ 
+ const codexAccountTicketConfigKey = "codex_ticket_config"
+-const codexTicketMaxAttempts = 8
+-const codexTicketRetryCooldown = 5 * time.Minute
++
++// 每轮采集最多尝试次数与失败后的冷却时间。票据 1 小时有效、到期前 10 分钟开始续期，
++// 原来的 8 次 + 5 分钟冷却在续期窗口里只能跑两轮，坏运气时票会过期出现调度空隙；
++// 改成 30 次 + 1 分钟冷却后窗口内可跑约 75 次。401/403/429 仍会立即终止整轮。
++const codexTicketMaxAttempts = 30
++const codexTicketRetryCooldown = time.Minute
++
++// 同一轮内两次尝试之间的间隔；测试里会调小，避免 30 次尝试真的等 30 秒。
++var codexTicketAttemptSpacing = time.Second
+ 
+ const (
+ 	codexTicketPlanPro  = "pro"
+@@ -728,7 +735,7 @@ func (s *OpenAIGatewayService) runCodexAccountTicketJob(ctx context.Context, id
+ 			lastError = "STATE did not preserve the target model on this account's fixed proxy"
+ 		}
+ 		if attempt < codexTicketMaxAttempts {
+-			timer := time.NewTimer(time.Second)
++			timer := time.NewTimer(codexTicketAttemptSpacing)
+ 			select {
+ 			case <-ctx.Done():
+ 				timer.Stop()
+diff --git a/backend/internal/service/openai_codex_ticket_lifecycle_test.go b/backend/internal/service/openai_codex_ticket_lifecycle_test.go
+index 6969a2f..f9c8bab 100644
+--- a/backend/internal/service/openai_codex_ticket_lifecycle_test.go
++++ b/backend/internal/service/openai_codex_ticket_lifecycle_test.go
+@@ -93,16 +93,19 @@ func TestCodexAccountTicketFixedProxyMismatchRejectsAndBoundsAttempts(t *testing
+ 		return codexTicketResponse(), nil
+ 	}}
+ 	s, r := ticketJobService(t, u)
++	prevSpacing := codexTicketAttemptSpacing
++	codexTicketAttemptSpacing = 10 * time.Millisecond
++	t.Cleanup(func() { codexTicketAttemptSpacing = prevSpacing })
+ 	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
+-	require.Equal(t, int64(16), calls.Load())
++	require.Equal(t, int64(2*codexTicketMaxAttempts), calls.Load())
+ 	a, _ := r.GetByID(context.Background(), 41)
+ 	require.Nil(t, s.lookupOpenAICodexTicket(a, openAICodexTicketDefaultModel))
+ 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
+ 	require.NoError(t, err)
+ 	require.Equal(t, "error", status.State)
+-	require.Equal(t, 8, status.Attempts)
++	require.Equal(t, codexTicketMaxAttempts, status.Attempts)
+ 	s.refreshOpenAICodexTickets(context.Background())
+-	require.Equal(t, int64(16), calls.Load())
++	require.Equal(t, int64(2*codexTicketMaxAttempts), calls.Load())
+ }
+ func TestCodexAccountTicketDisableDuringJobPreventsLatePublication(t *testing.T) {
+ 	for _, stage := range []string{"harvest", "fixed"} {
+diff --git a/backend/internal/service/openai_codex_ticket_retention_test.go b/backend/internal/service/openai_codex_ticket_retention_test.go
+index d8dbf68..356e263 100644
+--- a/backend/internal/service/openai_codex_ticket_retention_test.go
++++ b/backend/internal/service/openai_codex_ticket_retention_test.go
+@@ -68,7 +68,7 @@ func TestCodexAccountTicketRejectionStopsRoundAndRetainsSavedTicket(t *testing.T
+ 				require.False(t, status.Refreshing)
+ 				require.Contains(t, status.LastError, strconv.Itoa(code))
+ 				require.NotNil(t, status.RetryAfter)
+-				require.True(t, status.RetryAfter.After(time.Now().Add(4*time.Minute)))
++				require.True(t, status.RetryAfter.After(time.Now().Add(codexTicketRetryCooldown-10*time.Second)))
+ 				require.Nil(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, false))
+ 				encoded, err := json.Marshal(status)
+ 				require.NoError(t, err)

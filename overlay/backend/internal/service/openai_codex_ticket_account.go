@@ -24,8 +24,15 @@ import (
 )
 
 const codexAccountTicketConfigKey = "codex_ticket_config"
-const codexTicketMaxAttempts = 8
-const codexTicketRetryCooldown = 5 * time.Minute
+
+// 每轮采集最多尝试次数与失败后的冷却时间。票据 1 小时有效、到期前 10 分钟开始续期，
+// 原来的 8 次 + 5 分钟冷却在续期窗口里只能跑两轮，坏运气时票会过期出现调度空隙；
+// 改成 30 次 + 1 分钟冷却后窗口内可跑约 75 次。401/403/429 仍会立即终止整轮。
+const codexTicketMaxAttempts = 30
+const codexTicketRetryCooldown = time.Minute
+
+// 同一轮内两次尝试之间的间隔；测试里会调小，避免 30 次尝试真的等 30 秒。
+var codexTicketAttemptSpacing = time.Second
 
 const (
 	codexTicketPlanPro  = "pro"
@@ -728,7 +735,7 @@ func (s *OpenAIGatewayService) runCodexAccountTicketJob(ctx context.Context, id 
 			lastError = "STATE did not preserve the target model on this account's fixed proxy"
 		}
 		if attempt < codexTicketMaxAttempts {
-			timer := time.NewTimer(time.Second)
+			timer := time.NewTimer(codexTicketAttemptSpacing)
 			select {
 			case <-ctx.Done():
 				timer.Stop()

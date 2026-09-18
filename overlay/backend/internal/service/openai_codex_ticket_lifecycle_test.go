@@ -93,16 +93,19 @@ func TestCodexAccountTicketFixedProxyMismatchRejectsAndBoundsAttempts(t *testing
 		return codexTicketResponse(), nil
 	}}
 	s, r := ticketJobService(t, u)
+	prevSpacing := codexTicketAttemptSpacing
+	codexTicketAttemptSpacing = 10 * time.Millisecond
+	t.Cleanup(func() { codexTicketAttemptSpacing = prevSpacing })
 	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, openAICodexTicketDefaultModel, true))
-	require.Equal(t, int64(16), calls.Load())
+	require.Equal(t, int64(2*codexTicketMaxAttempts), calls.Load())
 	a, _ := r.GetByID(context.Background(), 41)
 	require.Nil(t, s.lookupOpenAICodexTicket(a, openAICodexTicketDefaultModel))
 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
 	require.NoError(t, err)
 	require.Equal(t, "error", status.State)
-	require.Equal(t, 8, status.Attempts)
+	require.Equal(t, codexTicketMaxAttempts, status.Attempts)
 	s.refreshOpenAICodexTickets(context.Background())
-	require.Equal(t, int64(16), calls.Load())
+	require.Equal(t, int64(2*codexTicketMaxAttempts), calls.Load())
 }
 func TestCodexAccountTicketDisableDuringJobPreventsLatePublication(t *testing.T) {
 	for _, stage := range []string{"harvest", "fixed"} {
