@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -246,4 +248,77 @@ func TestOpenAICodexTicketGateCompactRequestUsesForwardOutboundModel(t *testing.
 	account := ticketTestAccount(41)
 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", true))
+}
+
+// 以下两个用例来自原作者 wangyunjeff 的「支持 STATE 无代理直连复验」改动（94068e5），
+// 按本分支的多模型接口做了适配。
+func TestCodexAccountTicketDirectRouteConfigurationAndBinding(t *testing.T) {
+	ctx := context.Background()
+	account := ticketTestAccount(41)
+	proxyTicket := verifiedTestTicket(account, 292)
+	legacy := sha256.Sum256([]byte("41\x007\x00http://fixed.example.com:8080\x00acc-1"))
+	require.Equal(t, fmt.Sprintf("%x", legacy), proxyTicket.FixedProxyFingerprint)
+	account.ProxyID, account.Proxy = nil, nil
+	require.True(t, codexAccountTicketEligible(account))
+	require.False(t, proxyTicket.validFor(account, codexAccountTicketConfigOf(account), time.Now()))
+	directTicket := verifiedTestTicket(account, 292)
+	require.NotEmpty(t, directTicket.FixedProxyFingerprint)
+	require.NotEqual(t, proxyTicket.FixedProxyFingerprint, directTicket.FixedProxyFingerprint)
+	require.True(t, directTicket.validFor(account, codexAccountTicketConfigOf(account), time.Now()))
+	require.False(t, directTicket.validFor(ticketTestAccount(41), codexAccountTicketConfigOf(account), time.Now()))
+	other := *account
+	other.ID = 42
+	require.NotEqual(t, directTicket.FixedProxyFingerprint, codexTicketFixedProxyFingerprint(&other))
+	other = *account
+	other.Credentials = map[string]any{"chatgpt_account_id": "acc-2"}
+	require.NotEqual(t, directTicket.FixedProxyFingerprint, codexTicketFixedProxyFingerprint(&other))
+	repo := &codexTicketRefreshRepo{accounts: []Account{*account}}
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, nil)
+	svc.accountRepo = repo
+	status, err := svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: true, TicketPlan: "pro"})
+	require.NoError(t, err)
+	require.True(t, status.Enabled)
+	require.True(t, status.DirectRoute)
+	require.False(t, status.FixedProxyConfigured)
+	require.Equal(t, "global_disabled", status.State)
+
+	svc.cfg.Gateway.OpenAICodexTicket.HarvestProxyURL = ""
+	_, err = svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: true})
+	require.Error(t, err)
+	status, err = svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: false})
+	require.NoError(t, err)
+	require.Equal(t, "disabled", status.State)
+}
+
+func TestCodexAccountTicketRejectsIncompleteBusinessRoute(t *testing.T) {
+	for _, missing := range []string{"proxy", "proxy_id", "inactive"} {
+		t.Run(missing, func(t *testing.T) {
+			account := ticketTestAccount(41)
+			switch missing {
+			case "proxy":
+				account.Proxy = nil
+			case "proxy_id":
+				account.ProxyID = nil
+			case "inactive":
+				account.Proxy, account.ProxyID = nil, nil
+				account.Status = "inactive"
+			}
+			require.False(t, codexAccountTicketEligible(account))
+			if missing != "inactive" {
+				require.False(t, codexTicketDirectRoute(account))
+				require.Empty(t, codexTicketFixedProxyFingerprint(account))
+				_, valid := codexTicketBusinessProxyURL(account)
+				require.False(t, valid)
+			}
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, nil)
+			svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*account}}
+			_, err := svc.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: true})
+			require.Error(t, err)
+			_, err = svc.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: false})
+			require.NoError(t, err)
+		})
+	}
+	require.False(t, codexAccountTicketEligible(nil))
+	require.False(t, codexTicketDirectRoute(nil))
+	require.Empty(t, codexTicketFixedProxyFingerprint(nil))
 }

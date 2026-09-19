@@ -26,6 +26,7 @@
         <p v-else class="text-amber-700 dark:text-amber-300">{{ t('admin.accounts.stateTicket.globalPoolMissing') }}</p>
         <p>{{ t('admin.accounts.stateTicket.globalPoolHint') }} <a href="/admin/settings?tab=gateway" target="_blank" rel="noopener noreferrer" class="font-medium underline">{{ t('admin.accounts.stateTicket.gatewaySettings') }}</a></p>
       </div>
+      <p v-if="status.direct_route" class="text-xs text-gray-500 dark:text-gray-400" data-testid="codex-account-ticket-direct-route">{{ t('admin.accounts.stateTicket.directRoute') }}</p>
       <div data-testid="codex-account-ticket-models">
         <p class="input-label">{{ t('admin.accounts.stateTicket.models') }}</p>
         <div class="flex flex-wrap gap-4">

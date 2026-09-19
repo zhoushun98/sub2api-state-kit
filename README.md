@@ -1,6 +1,10 @@
 # Sub2API STATE Kit
 
-> 本仓库是 [wangyunjeff/sub2api-state-kit](https://github.com/wangyunjeff/sub2api-state-kit) 的 fork，在原版 0.1.0 之上追加了下面三项改造；构建好的镜像发布在 Docker Hub `zhoushun98/sub2api`。原作者的说明从「相比上游增加了什么」一节起原样保留。
+> 本仓库是 [wangyunjeff/sub2api-state-kit](https://github.com/wangyunjeff/sub2api-state-kit) 的 fork，在原版 0.1.0 之上追加了下面几项改造；构建好的镜像发布在 Docker Hub `zhoushun98/sub2api`。原作者的说明从「相比上游增加了什么」一节起原样保留。
+>
+> **基线：上游 Sub2API `v0.2.7`（aea725f2）。** 注意官方 0.2.7 已经**不含** 292 票据功能：该功能由 PR #7315 于 2026-09-18 合入 main（commit 49a39b6d），随后被从上游历史中移除，0.2.7 的代码树里没有任何 `codex_ticket` 文件。因此本 fork 的 overlay 同时承载「官方票据功能 + 账号级扩展」，共 86 个覆盖文件。
+>
+> 原作者从 v0.3.0 起主推**插件版**（`.s2plugin`，面向官方 0.2.7 的插件接口，无需改宿主源码）。本 fork 继续走源码 overlay 路线，因为插件版目前不提供本 fork 依赖的「每账号同时勾选两个目标模型」「新账号默认开启」「更激进的采票重试」这三项，且配置入口不在账号编辑弹窗里。需要免改源码的部署可以改用原作者的插件版。
 
 ## 本 fork 的改动（2026-09-19）
 
@@ -21,12 +25,18 @@
 - 每轮采集最多 30 次尝试（原 8 次），一轮失败后冷却 1 分钟（原 5 分钟）；到期前 10 分钟开始续期不变。
 - 原策略在续期窗口里只能跑两轮，连续失败会在票过期后出现该模型的调度空隙；改后窗口内可跑约 75 次。401 / 403 / 429 仍立即终止整轮。
 
+### 0.1.4：基线升到 0.2.7，并合入原作者的直连复验
+
+- overlay 基线由 v0.2.6（49a39b6d）改为 v0.2.7（aea725f2），并把上游已删除的 PR #7315 一并带入。
+- 合入原作者 `94068e5`「支持 STATE 无代理直连复验」并适配多模型接口：无代理账号直连复验，残缺路由明确拒绝；已绑代理的指纹格式不变，升级不作废仍有效的票据。
+
 ### 镜像与构建
 
-- `zhoushun98/sub2api:state-kit-0.1.3-retry`（linux/amd64，含以上全部改动）
+- `zhoushun98/sub2api:state-kit-0.2.7-0.1.4`（linux/amd64，基线 0.2.7，含以上全部改动）
+- `zhoushun98/sub2api:state-kit-0.1.3-retry`（基线 0.2.6）
 - `zhoushun98/sub2api:state-kit-0.1.2-defaults`
 - `zhoushun98/sub2api:state-kit-0.1.1-multimodel`
-- 构建：`python3 scripts/prepare.py ../sub2api-state-source && cd ../sub2api-state-source && docker build --build-arg VERSION=0.2.6-state-kit.0.1.3-retry -t sub2api:state-kit-0.1.3-retry .`
+- 构建：`python3 scripts/prepare.py ../sub2api-state-source && cd ../sub2api-state-source && docker build --build-arg VERSION=0.2.7-state-kit.0.1.4 -t sub2api:state-kit-0.2.7-0.1.4 .`
 
 ### 验证
 

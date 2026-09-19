@@ -1,0 +1,332 @@
+commit 550fc29afe0a7aa9bb55ff7aa85cc2fe656a4e25
+Author: Jason <jason007@duck.com>
+Date:   Sat Sep 19 21:53:44 2026 +0800
+
+    合入原作者 94068e5：支持无代理账号直连复验 STATE（适配多模型接口，含回归测试）
+
+diff --git a/backend/internal/service/openai_codex_ticket_account.go b/backend/internal/service/openai_codex_ticket_account.go
+index 3c65e2350..7aba37f88 100644
+--- a/backend/internal/service/openai_codex_ticket_account.go
++++ b/backend/internal/service/openai_codex_ticket_account.go
+@@ -167,6 +167,7 @@ type CodexAccountTicketStatus struct {
+ 	ProxyConfigured      bool                            `json:"proxy_configured"`
+ 	ProxyDisplay         string                          `json:"proxy_display"`
+ 	FixedProxyConfigured bool                            `json:"fixed_proxy_configured"`
++	DirectRoute          bool                            `json:"direct_route"`
+ 	State                string                          `json:"state"`
+ 	TicketUsable         bool                            `json:"ticket_usable"`
+ 	Refreshing           bool                            `json:"refreshing"`
+@@ -231,15 +232,40 @@ func codexAccountTicketConfigOf(account *Account) codexAccountTicketConfig {
+ 	return out
+ }
+ 
++// codexTicketDirectRoute 表示账号完全没有绑定固定代理，业务请求与复验都走本机直连。
++func codexTicketDirectRoute(account *Account) bool {
++	return account != nil && account.ProxyID == nil && account.Proxy == nil
++}
++
++// codexTicketBusinessProxyURL 返回复验与业务请求使用的出口：直连返回空串，
++// 绑了代理返回代理地址；只有 ProxyID 有值却取不到代理这种残缺路由返回 false。
++func codexTicketBusinessProxyURL(account *Account) (string, bool) {
++	if codexTicketDirectRoute(account) {
++		return "", true
++	}
++	if account == nil || account.ProxyID == nil || account.Proxy == nil {
++		return "", false
++	}
++	return account.Proxy.URL(), true
++}
++
+ func codexAccountTicketEligible(account *Account) bool {
+-	return isOpenAICodexTicketAccount(account) && account.Status == StatusActive && account.Proxy != nil && account.ProxyID != nil
++	_, routeValid := codexTicketBusinessProxyURL(account)
++	return isOpenAICodexTicketAccount(account) && account.Status == StatusActive && routeValid
+ }
+ 
+ func codexTicketFixedProxyFingerprint(account *Account) string {
+-	if account == nil || account.Proxy == nil || account.ProxyID == nil {
++	proxyURL, routeValid := codexTicketBusinessProxyURL(account)
++	if !routeValid {
+ 		return ""
+ 	}
+-	raw := fmt.Sprintf("%d\x00%d\x00%s\x00%v", account.ID, *account.ProxyID, account.Proxy.URL(), account.Credentials["chatgpt_account_id"])
++	var raw string
++	if codexTicketDirectRoute(account) {
++		raw = fmt.Sprintf("%d\x00direct\x00%v", account.ID, account.Credentials["chatgpt_account_id"])
++	} else {
++		// 保留已有代理指纹格式，避免升级使仍有效的票据失效。
++		raw = fmt.Sprintf("%d\x00%d\x00%s\x00%v", account.ID, *account.ProxyID, proxyURL, account.Credentials["chatgpt_account_id"])
++	}
+ 	digest := sha256.Sum256([]byte(raw))
+ 	return hex.EncodeToString(digest[:])
+ }
+@@ -281,7 +307,7 @@ func (s *OpenAIGatewayService) GetCodexAccountTicketStatus(ctx context.Context,
+ 	models := ac.models()
+ 	pool := s.openAICodexTicketHarvestProxyURLContext(ctx)
+ 	poolConfigured := pool != "" && ValidateOpenAICodexTicketHarvestProxyURL(pool) == nil
+-	status := &CodexAccountTicketStatus{TicketPlan: ac.TicketPlan, TargetLength: codexTicketTargetLength(ac.TicketPlan), Enabled: ac.Enabled, GlobalEnabled: s.openAICodexTicketEnabledContext(ctx), Model: models[0], Models: models, ProxyConfigured: poolConfigured, FixedProxyConfigured: account.Proxy != nil && account.ProxyID != nil, State: "waiting"}
++	status := &CodexAccountTicketStatus{TicketPlan: ac.TicketPlan, TargetLength: codexTicketTargetLength(ac.TicketPlan), Enabled: ac.Enabled, GlobalEnabled: s.openAICodexTicketEnabledContext(ctx), Model: models[0], Models: models, ProxyConfigured: poolConfigured, FixedProxyConfigured: account.Proxy != nil && account.ProxyID != nil, DirectRoute: codexTicketDirectRoute(account), State: "waiting"}
+ 	status.Watchdog = codexTicketWatchdogStatusOf(account, ac.Enabled && status.GlobalEnabled)
+ 	if parsed, err := url.Parse(strings.ReplaceAll(pool, "{sid}", "%7Bsid%7D")); err == nil {
+ 		status.ProxyDisplay = parsed.Host
+@@ -343,7 +369,7 @@ func (s *OpenAIGatewayService) GetCodexAccountTicketStatus(ctx context.Context,
+ 		status.CapturedAt = nil
+ 		status.ExpiresAt = nil
+ 		status.RemainingSeconds = 0
+-		status.LastError = "Account must be active and have a fixed business proxy"
++		status.LastError = "Account must be active and use a valid business route (fixed proxy or server direct connection)"
+ 		for i := range status.ModelStatuses {
+ 			ms := &status.ModelStatuses[i]
+ 			ms.State = "error"
+@@ -467,9 +493,13 @@ func (s *OpenAIGatewayService) ConfigureCodexAccountTicket(ctx context.Context,
+ 		return nil, apperrors.BadRequest("CODEX_TICKET_GLOBAL_PROXY", "Configure the dynamic proxy pool in gateway settings, not per account")
+ 	}
+ 	pool := s.openAICodexTicketHarvestProxyURLContext(ctx)
+-	if next.Enabled && (pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil || account.Proxy == nil || account.ProxyID == nil) {
++	if next.Enabled && (pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil) {
++		s.openaiCodexAccountMu.Unlock()
++		return nil, apperrors.BadRequest("CODEX_TICKET_PROXY_REQUIRED", "Configure a valid global dynamic proxy pool first")
++	}
++	if next.Enabled && !codexAccountTicketEligible(account) {
+ 		s.openaiCodexAccountMu.Unlock()
+-		return nil, apperrors.BadRequest("CODEX_TICKET_PROXY_REQUIRED", "Configure the global dynamic proxy pool and this account's fixed business proxy first")
++		return nil, apperrors.BadRequest("CODEX_TICKET_ACCOUNT_INACTIVE", "Account must be active and use a valid business route (fixed proxy or server direct connection)")
+ 	}
+ 	// Retire stored account overrides without invalidating an otherwise valid ticket.
+ 	next.ProxyURL = ""
+@@ -552,7 +582,7 @@ func (s *OpenAIGatewayService) HarvestCodexAccountTicket(ctx context.Context, id
+ 		return nil, apperrors.BadRequest("CODEX_TICKET_DISABLED", "Enable STATE tickets for this account first")
+ 	}
+ 	if !codexAccountTicketEligible(account) {
+-		return nil, apperrors.BadRequest("CODEX_TICKET_ACCOUNT_INACTIVE", "Account must be active and have a fixed business proxy")
++		return nil, apperrors.BadRequest("CODEX_TICKET_ACCOUNT_INACTIVE", "Account must be active and use a valid business route (fixed proxy or server direct connection)")
+ 	}
+ 	pool := s.openAICodexTicketHarvestProxyURLContext(ctx)
+ 	if pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil {
+@@ -710,7 +740,12 @@ func (s *OpenAIGatewayService) runCodexAccountTicketJob(ctx context.Context, id
+ 			if ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) || s.openAICodexTicketHarvestProxyURLContext(ctx) != job.harvestProxyURL {
+ 				return
+ 			}
+-			replayState, status, err := s.fireCodexAccountTicketProbe(ctx, account, token, model, account.Proxy.URL(), state, timeout)
++			businessProxy, routeValid := codexTicketBusinessProxyURL(account)
++			if !routeValid {
++				lastError = "Account business route is incomplete"
++				return
++			}
++			replayState, status, err := s.fireCodexAccountTicketProbe(ctx, account, token, model, businessProxy, state, timeout)
+ 			if reason := codexTicketProbeRejection(status); reason != "" {
+ 				lastError = reason
+ 				return
+diff --git a/backend/internal/service/openai_codex_ticket_test.go b/backend/internal/service/openai_codex_ticket_test.go
+index 48d51bbe3..66dbbcca9 100644
+--- a/backend/internal/service/openai_codex_ticket_test.go
++++ b/backend/internal/service/openai_codex_ticket_test.go
+@@ -2,7 +2,9 @@ package service
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"encoding/json"
++	"fmt"
+ 	"io"
+ 	"maps"
+ 	"net/http"
+@@ -247,3 +249,76 @@ func TestOpenAICodexTicketGateCompactRequestUsesForwardOutboundModel(t *testing.
+ 	require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", false))
+ 	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-6-astra", true))
+ }
++
++// 以下两个用例来自原作者 wangyunjeff 的「支持 STATE 无代理直连复验」改动（94068e5），
++// 按本分支的多模型接口做了适配。
++func TestCodexAccountTicketDirectRouteConfigurationAndBinding(t *testing.T) {
++	ctx := context.Background()
++	account := ticketTestAccount(41)
++	proxyTicket := verifiedTestTicket(account, 292)
++	legacy := sha256.Sum256([]byte("41\x007\x00http://fixed.example.com:8080\x00acc-1"))
++	require.Equal(t, fmt.Sprintf("%x", legacy), proxyTicket.FixedProxyFingerprint)
++	account.ProxyID, account.Proxy = nil, nil
++	require.True(t, codexAccountTicketEligible(account))
++	require.False(t, proxyTicket.validFor(account, codexAccountTicketConfigOf(account), time.Now()))
++	directTicket := verifiedTestTicket(account, 292)
++	require.NotEmpty(t, directTicket.FixedProxyFingerprint)
++	require.NotEqual(t, proxyTicket.FixedProxyFingerprint, directTicket.FixedProxyFingerprint)
++	require.True(t, directTicket.validFor(account, codexAccountTicketConfigOf(account), time.Now()))
++	require.False(t, directTicket.validFor(ticketTestAccount(41), codexAccountTicketConfigOf(account), time.Now()))
++	other := *account
++	other.ID = 42
++	require.NotEqual(t, directTicket.FixedProxyFingerprint, codexTicketFixedProxyFingerprint(&other))
++	other = *account
++	other.Credentials = map[string]any{"chatgpt_account_id": "acc-2"}
++	require.NotEqual(t, directTicket.FixedProxyFingerprint, codexTicketFixedProxyFingerprint(&other))
++	repo := &codexTicketRefreshRepo{accounts: []Account{*account}}
++	svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, nil)
++	svc.accountRepo = repo
++	status, err := svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: true, TicketPlan: "pro"})
++	require.NoError(t, err)
++	require.True(t, status.Enabled)
++	require.True(t, status.DirectRoute)
++	require.False(t, status.FixedProxyConfigured)
++	require.Equal(t, "global_disabled", status.State)
++
++	svc.cfg.Gateway.OpenAICodexTicket.HarvestProxyURL = ""
++	_, err = svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: true})
++	require.Error(t, err)
++	status, err = svc.ConfigureCodexAccountTicket(ctx, 41, CodexAccountTicketUpdate{Enabled: false})
++	require.NoError(t, err)
++	require.Equal(t, "disabled", status.State)
++}
++
++func TestCodexAccountTicketRejectsIncompleteBusinessRoute(t *testing.T) {
++	for _, missing := range []string{"proxy", "proxy_id", "inactive"} {
++		t.Run(missing, func(t *testing.T) {
++			account := ticketTestAccount(41)
++			switch missing {
++			case "proxy":
++				account.Proxy = nil
++			case "proxy_id":
++				account.ProxyID = nil
++			case "inactive":
++				account.Proxy, account.ProxyID = nil, nil
++				account.Status = "inactive"
++			}
++			require.False(t, codexAccountTicketEligible(account))
++			if missing != "inactive" {
++				require.False(t, codexTicketDirectRoute(account))
++				require.Empty(t, codexTicketFixedProxyFingerprint(account))
++				_, valid := codexTicketBusinessProxyURL(account)
++				require.False(t, valid)
++			}
++			svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, nil)
++			svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*account}}
++			_, err := svc.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: true})
++			require.Error(t, err)
++			_, err = svc.ConfigureCodexAccountTicket(context.Background(), 41, CodexAccountTicketUpdate{Enabled: false})
++			require.NoError(t, err)
++		})
++	}
++	require.False(t, codexAccountTicketEligible(nil))
++	require.False(t, codexTicketDirectRoute(nil))
++	require.Empty(t, codexTicketFixedProxyFingerprint(nil))
++}
+diff --git a/frontend/src/api/admin/codexTickets.ts b/frontend/src/api/admin/codexTickets.ts
+index 66b7250e9..b3fdbabfd 100644
+--- a/frontend/src/api/admin/codexTickets.ts
++++ b/frontend/src/api/admin/codexTickets.ts
+@@ -40,6 +40,7 @@ export interface CodexAccountTicketStatus {
+   proxy_configured: boolean
+   proxy_display: string
+   fixed_proxy_configured: boolean
++  direct_route?: boolean
+   state: CodexAccountTicketState
+   remaining_seconds: number
+   // These fields are optional so older API responses and test fixtures remain valid.
+diff --git a/frontend/src/components/account/CodexAccountTicketSettings.vue b/frontend/src/components/account/CodexAccountTicketSettings.vue
+index 4cf2f2e4b..b9571b2cc 100644
+--- a/frontend/src/components/account/CodexAccountTicketSettings.vue
++++ b/frontend/src/components/account/CodexAccountTicketSettings.vue
+@@ -26,6 +26,7 @@
+         <p v-else class="text-amber-700 dark:text-amber-300">{{ t('admin.accounts.stateTicket.globalPoolMissing') }}</p>
+         <p>{{ t('admin.accounts.stateTicket.globalPoolHint') }} <a href="/admin/settings?tab=gateway" target="_blank" rel="noopener noreferrer" class="font-medium underline">{{ t('admin.accounts.stateTicket.gatewaySettings') }}</a></p>
+       </div>
++      <p v-if="status.direct_route" class="text-xs text-gray-500 dark:text-gray-400" data-testid="codex-account-ticket-direct-route">{{ t('admin.accounts.stateTicket.directRoute') }}</p>
+       <div data-testid="codex-account-ticket-models">
+         <p class="input-label">{{ t('admin.accounts.stateTicket.models') }}</p>
+         <div class="flex flex-wrap gap-4">
+diff --git a/frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts b/frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts
+index 7d3fb668e..93565b8e9 100644
+--- a/frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts
++++ b/frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts
+@@ -265,4 +265,35 @@ describe('CodexAccountTicketSettings', () => {
+     expect(wrapper.find(selector('models-required')).exists()).toBe(true)
+     expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
+   })
++
++  // 以下两个用例来自原作者 wangyunjeff 的「支持 STATE 无代理直连复验」改动（94068e5），
++  // 按本分支的多模型保存载荷做了适配。
++  it('allows a no-proxy account to save and displays the direct verification route', async () => {
++    api.getCodexAccountTicket.mockResolvedValue(makeStatus({
++      proxy_configured: true, fixed_proxy_configured: false, direct_route: true
++    }))
++    const wrapper = mountCard()
++    await flushPromises()
++    expect(wrapper.get(selector('direct-route')).text()).toContain('stateTicket.directRoute')
++    await wrapper.get(selector('enabled')).trigger('click')
++    expect(wrapper.get(selector('save')).attributes('disabled')).toBeUndefined()
++    api.saveCodexAccountTicket.mockResolvedValue(makeStatus({
++      enabled: true, proxy_configured: true, fixed_proxy_configured: false, direct_route: true, state: 'waiting'
++    }))
++    await wrapper.get(selector('save')).trigger('click')
++    await flushPromises()
++    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro', models: ['gpt-6-astra'] })
++    expect(wrapper.get(selector('harvest')).attributes('disabled')).toBeUndefined()
++  })
++
++  it('does not label a fixed-proxy or older server response as direct', async () => {
++    const wrapper = mountCard()
++    await flushPromises()
++    expect(wrapper.find(selector('direct-route')).exists()).toBe(false)
++    api.getCodexAccountTicket.mockResolvedValue(makeStatus({ direct_route: false }))
++    await wrapper.setProps({ accountId: 5 })
++    await flushPromises()
++    expect(wrapper.find(selector('direct-route')).exists()).toBe(false)
++  })
++
+ })
+diff --git a/frontend/src/i18n/locales/en/admin/accounts.ts b/frontend/src/i18n/locales/en/admin/accounts.ts
+index 0ab7db955..b156712ec 100644
+--- a/frontend/src/i18n/locales/en/admin/accounts.ts
++++ b/frontend/src/i18n/locales/en/admin/accounts.ts
+@@ -7,12 +7,13 @@ export default {
+   "plan": "Account plan",
+   "planPro": "Pro (292)",
+   "planTeam": "Team (332)",
+-  "planHint": "Select the plan manually. Tickets must match the selected length and pass actual model and fixed proxy verification. Changing plans requires a new ticket.",
++  "planHint": "Select the plan manually. Tickets must match the selected length and pass actual model and business route verification. Changing plans requires a new ticket.",
+   "globalOff": "The global master switch is off. You can save account settings; harvesting and injection start only after the master switch is enabled.",
+   "gatewaySettings": "Open gateway settings",
+   "globalPoolConfigured": "Using the global dynamic IP pool: {address}",
+   "globalPoolMissing": "Configure the global dynamic IP pool in gateway settings first.",
+-  "globalPoolHint": "This switch controls tickets for this account. Harvesting uses the global pool; normal requests keep this account's fixed proxy.",
++  "globalPoolHint": "This switch controls tickets for this account. Harvesting uses the global pool; verification and normal requests keep this account's fixed proxy or server direct connection.",
++  "directRoute": "This account has no proxy: ticket verification and normal requests connect directly from this server. The dynamic IP pool is used only for harvesting.",
+   "proxy": "Harvest proxy",
+   "proxyPlaceholder": "Paste the full proxy URL, including username and password",
+   "proxyConfigured": "Configured: {address}. Leave blank to keep the existing connection.",
+@@ -47,7 +48,7 @@ export default {
+   "failureHint": "When enabled without a valid STATE, only this account’s target model is paused. Turn off the account switch and save to restore normal requests.",
+   "saved": "Ticket settings saved.",
+   "loadFailed": "Could not load ticket status. Please retry.",
+-  "saveFailed": "Save failed. Check the proxy URL format and retry.",
++  "saveFailed": "Save failed. Check the dynamic IP pool, account status and business route settings, then retry.",
+   "harvestFailed": "Could not start acquisition. Check the current status and retry.",
+   "retry": "Retry",
+   "states": {
+diff --git a/frontend/src/i18n/locales/zh/admin/accounts.ts b/frontend/src/i18n/locales/zh/admin/accounts.ts
+index d0f7b7a44..b324a60e4 100644
+--- a/frontend/src/i18n/locales/zh/admin/accounts.ts
++++ b/frontend/src/i18n/locales/zh/admin/accounts.ts
+@@ -7,12 +7,13 @@ export default {
+   "plan": "套餐",
+   "planPro": "Pro（292）",
+   "planTeam": "Team（332）",
+-  "planHint": "手动选择套餐。票据需符合所选长度，并通过实际返回模型和固定代理验证。更改套餐后需重新获取。",
++  "planHint": "手动选择套餐。票据需符合所选长度，并通过实际返回模型和业务出口验证。更改套餐后需重新获取。",
+   "globalOff": "全局总开关已关闭；可以保存账号设置，开启总开关后才会获取和使用 STATE。",
+   "gatewaySettings": "前往网关服务设置",
+   "globalPoolConfigured": "使用全局动态 IP 池：{address}",
+   "globalPoolMissing": "尚未配置全局动态 IP 池，请先在网关服务设置中填写。",
+-  "globalPoolHint": "这里只控制本账号是否使用票据。采集统一使用全局 IP 池，日常请求仍走本账号的固定代理。",
++  "globalPoolHint": "这里只控制本账号是否使用票据。采集统一使用全局 IP 池，复验和日常请求沿用本账号的固定代理或服务器直连。",
++  "directRoute": "当前账号为无代理：票据复验和日常请求使用当前服务器直连，动态 IP 池仅用于采集。",
+   "proxy": "采集代理",
+   "proxyPlaceholder": "粘贴完整代理 URL（包含用户名和密码）",
+   "proxyConfigured": "已配置：{address}。留空保存会保留现有连接。",
+@@ -47,7 +48,7 @@ export default {
+   "failureHint": "启用后若没有有效 STATE，只暂停本账号目标模型的请求。关闭账号开关并保存即可恢复普通请求流程。",
+   "saved": "票据设置已保存。",
+   "loadFailed": "暂时无法读取票据状态，请重试。",
+-  "saveFailed": "保存失败，请检查代理连接格式并重试。",
++  "saveFailed": "保存失败，请检查动态 IP 池、账号状态与业务出口设置后重试。",
+   "harvestFailed": "未能启动获取，请检查当前状态并重试。",
+   "retry": "重试",
+   "states": {

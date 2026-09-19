@@ -265,4 +265,35 @@ describe('CodexAccountTicketSettings', () => {
     expect(wrapper.find(selector('models-required')).exists()).toBe(true)
     expect(wrapper.get(selector('save')).attributes('disabled')).toBeDefined()
   })
+
+  // 以下两个用例来自原作者 wangyunjeff 的「支持 STATE 无代理直连复验」改动（94068e5），
+  // 按本分支的多模型保存载荷做了适配。
+  it('allows a no-proxy account to save and displays the direct verification route', async () => {
+    api.getCodexAccountTicket.mockResolvedValue(makeStatus({
+      proxy_configured: true, fixed_proxy_configured: false, direct_route: true
+    }))
+    const wrapper = mountCard()
+    await flushPromises()
+    expect(wrapper.get(selector('direct-route')).text()).toContain('stateTicket.directRoute')
+    await wrapper.get(selector('enabled')).trigger('click')
+    expect(wrapper.get(selector('save')).attributes('disabled')).toBeUndefined()
+    api.saveCodexAccountTicket.mockResolvedValue(makeStatus({
+      enabled: true, proxy_configured: true, fixed_proxy_configured: false, direct_route: true, state: 'waiting'
+    }))
+    await wrapper.get(selector('save')).trigger('click')
+    await flushPromises()
+    expect(api.saveCodexAccountTicket).toHaveBeenCalledWith(4, { enabled: true, ticket_plan: 'pro', models: ['gpt-6-astra'] })
+    expect(wrapper.get(selector('harvest')).attributes('disabled')).toBeUndefined()
+  })
+
+  it('does not label a fixed-proxy or older server response as direct', async () => {
+    const wrapper = mountCard()
+    await flushPromises()
+    expect(wrapper.find(selector('direct-route')).exists()).toBe(false)
+    api.getCodexAccountTicket.mockResolvedValue(makeStatus({ direct_route: false }))
+    await wrapper.setProps({ accountId: 5 })
+    await flushPromises()
+    expect(wrapper.find(selector('direct-route')).exists()).toBe(false)
+  })
+
 })
